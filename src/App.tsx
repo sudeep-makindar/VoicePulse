@@ -547,6 +547,19 @@ export default function App() {
   // Session Database State
   const [sessions, setSessions] = useState<{ id: string; name: string; context: string; timestamp: string; result: PipelineResult }[]>([]);
 
+  // Active Campaign State
+  const [campaignQuestions, setCampaignQuestions] = useState<string[]>(() => {
+    const saved = localStorage.getItem("VOICEPULSE_CAMPAIGN_QUESTIONS");
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) {}
+    }
+    return [
+      "What was your overall impression of the event or product?",
+      "What specifically felt like a hurdle or roadblock during onboarding?",
+      "If you could change just one thing to make this experience absolutely delightful, what would that be?"
+    ];
+  });
+
   // Initialize cursor animation and pre-load database seeds
   const cursorRef = useRef<HTMLDivElement>(null);
   const cursorRingRef = useRef<HTMLDivElement>(null);
@@ -708,6 +721,7 @@ export default function App() {
                         transition={{ duration: 0.5, ease: "easeOut" }}
                       >
                         <VoiceWidget 
+                          campaignQuestions={campaignQuestions}
                           onSessionComplete={handleSessionComplete}
                           onCancel={() => setMode("landing")}
                         />
@@ -739,6 +753,8 @@ export default function App() {
                       >
                         <OperatorDashboard 
                           sessions={sessions}
+                          campaignQuestions={campaignQuestions}
+                          setCampaignQuestions={setCampaignQuestions}
                           onDeleteSession={handleDeleteSession}
                           onResetSeeds={handleResetSeeds}
                           onBackToLanding={() => setMode("landing")}
