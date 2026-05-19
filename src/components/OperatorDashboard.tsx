@@ -22,7 +22,9 @@ import {
   X,
   ClipboardList,
   Save,
-  Loader2
+  Loader2,
+  Share2,
+  Copy
 } from "lucide-react";
 import { 
   PipelineResult, 
@@ -58,6 +60,9 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [hasCreatedForm, setHasCreatedForm] = useState(() => {
+    return !!localStorage.getItem("VOICEPULSE_CAMPAIGN_QUESTIONS");
+  });
 
   // Active session helper
   const selectedSession = useMemo(() => {
@@ -348,8 +353,9 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="grid grid-cols-1 lg:grid-cols-2 gap-8"
+            className="flex flex-col gap-8 text-left"
           >
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* LEFT: AI Prompt Generator */}
             <div className="glass border border-purple-500/20 rounded-2xl p-8 flex flex-col gap-6">
               <div className="flex items-center gap-3 border-b border-white/5 pb-4">
@@ -487,6 +493,7 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
                     setCampaignQuestions(valid);
                     localStorage.setItem("VOICEPULSE_CAMPAIGN_QUESTIONS", JSON.stringify(valid));
                     setSavedSuccess(true);
+                    setHasCreatedForm(true);
                     setTimeout(() => setSavedSuccess(false), 2500);
                   }}
                   className="flex items-center gap-2 px-5 py-2 text-xs font-mono bg-brand-acid text-brand-dark font-bold rounded-xl hover:shadow-[0_0_20px_rgba(200,255,0,0.3)] transition-all cursor-pointer"
@@ -494,11 +501,65 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
                   {savedSuccess ? (
                     <><FileCheck size={14} /> SAVED!</>
                   ) : (
-                    <><Save size={14} /> SAVE_CAMPAIGN</>
+                  <><Save size={14} /> SAVE_CAMPAIGN</>
                   )}
                 </button>
               </div>
-            </div>
+            </div> {/* close QUESTION EDITOR card */}
+          </div> {/* close grid columns wrapper */}
+
+          {/* Shareable Link Section */}
+           {!hasCreatedForm ? (
+             <div className="glass border border-dashed border-white/10 rounded-2xl p-8 flex flex-col items-center justify-center text-center gap-3">
+               <Share2 size={24} className="text-brand-muted opacity-30 animate-pulse" />
+               <h4 className="text-base font-bold text-white uppercase">Awaiting Campaign Creation</h4>
+               <p className="text-xs text-brand-muted max-w-md leading-relaxed">
+                 Configure your questions in the editor above and click <strong className="text-brand-acid font-mono">SAVE_CAMPAIGN</strong> to publish the form and generate your shareable interview link.
+               </p>
+             </div>
+           ) : (
+             <div className="glass border border-brand-acid/20 rounded-2xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-32 h-32 bg-brand-acid/5 rounded-full blur-3xl pointer-events-none" />
+               
+               <div className="flex-1">
+                 <div className="flex items-center gap-2 mb-1">
+                   <Share2 size={16} className="text-brand-acid" />
+                   <span className="font-mono text-[10px] text-brand-acid uppercase tracking-widest">Shareable Campaign Form</span>
+                   
+                   {/* Unsaved changes badge */}
+                   {JSON.stringify(draftQuestions) !== JSON.stringify(campaignQuestions) && (
+                     <span className="px-2 py-0.5 rounded text-[8px] border border-yellow-500/20 bg-yellow-950/20 text-yellow-400 font-mono font-bold animate-pulse ml-2">
+                       UNSAVED DRAFT CHANGES
+                     </span>
+                   )}
+                 </div>
+                 <h4 className="text-lg font-bold text-white mb-2">Publish & Share Feedback Form</h4>
+                 <p className="text-xs text-brand-muted leading-relaxed max-w-xl">
+                   Anyone visiting this unique link will immediately launch into the custom conversational voice interview.
+                   The responses will be automatically recorded directly into your Google Sheets.
+                 </p>
+               </div>
+
+               <div className="w-full md:w-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-3 z-10">
+                 <input
+                   type="text"
+                   readOnly
+                   value={window.location.origin + window.location.pathname + "?questions=" + btoa(unescape(encodeURIComponent(JSON.stringify(campaignQuestions))))}
+                   className="bg-brand-dark/80 border border-white/10 rounded-xl px-4 py-3 text-white text-xs outline-none font-mono min-w-[280px] select-all"
+                 />
+                 <button
+                   onClick={() => {
+                     const shareLink = window.location.origin + window.location.pathname + "?questions=" + btoa(unescape(encodeURIComponent(JSON.stringify(campaignQuestions))));
+                     navigator.clipboard.writeText(shareLink);
+                     alert("Shareable Campaign Link copied to clipboard!");
+                   }}
+                   className="px-5 py-3 bg-brand-acid text-brand-dark font-bold font-mono text-xs rounded-xl hover:shadow-[0_0_20px_rgba(200,255,0,0.3)] transition-all flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+                 >
+                   <Copy size={14} /> COPY_LINK
+                 </button>
+               </div>
+             </div>
+           )}
           </motion.div>
         ) : activeTab === "cluster" ? (
           // ================== GLOBAL CLUSTERING VIEW ==================
@@ -852,8 +913,16 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
 
                 </motion.div>
               ) : (
-                <div className="glass p-12 text-center text-brand-muted font-mono rounded-2xl border border-white/5">
-                  SELECT_RESPONDENT_TO_VIEW_Payload
+                <div className="glass p-12 text-center rounded-3xl border border-white/5 flex flex-col items-center justify-center gap-6 py-24 text-left">
+                  <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+                    <ClipboardList size={32} className="text-brand-muted opacity-40 animate-pulse" />
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-xl font-display text-white mb-1 uppercase tracking-wide">Awaiting Respondent Feedback</h3>
+                    <p className="text-sm text-brand-muted font-body max-w-sm mx-auto leading-relaxed mt-2">
+                      Generate a campaign under the <strong className="text-brand-acid font-mono">CAMPAIGN_DESIGNER</strong> tab, then copy and share the custom URL to start collecting voice feedback!
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

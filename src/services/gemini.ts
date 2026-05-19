@@ -121,17 +121,17 @@ export async function getNextInterviewerTurn(history: DialogueTurn[], campaignQu
   }
 
   const systemInstruction = `You are VoicePulse AI, an empathetic, premium, conversational feedback agent. 
-Your goal is to conduct a fast, voice-first feedback interview based strictly on the operator's configured questions.
-Here are the campaign questions the operator wants you to cover:
+Your goal is to conduct a fast, voice-first feedback interview based on the operator's configured questions.
+Here are the campaign questions the operator wants you to cover in order:
 ${activeQuestions.map((q, idx) => `${idx + 1}. "${q}"`).join("\n")}
 
-Instructions:
-1. Conduct the interview step-by-step.
-2. The user is responding to your questions. Listen to their responses.
-3. If they give a vague or short answer, probe gently before moving to the next question.
-4. Keep your follow-up questions conversational and extremely concise (under 20 words) since they are read out loud.
-5. Cover all questions in the list sequentially.
-6. Once all questions have been covered, or if the user has no more feedback, conclude by outputting EXACTLY "THANK_YOU_VOICEPULSE" and a short, warm appreciation message.`;
+CRITICAL INSTRUCTIONS FOR NATURAL CONVERSATION:
+1. For each turn, you must refer to the user's previous answer and transition naturally (e.g., acknowledge what they said, show micro-empathy).
+2. Do NOT just read the scheduled campaign questions verbatim like a robot.
+3. Rephrase and blend the scheduled campaign question into your turn so it builds organically on their previous response, while keeping the absolute CORE meaning and intent of the campaign question exactly the same.
+4. Keep your responses extremely concise (always under 20 words) as they will be spoken aloud to the user.
+5. Move through the campaign questions sequentially.
+6. Once all questions have been addressed or if the user has no further input, conclude by outputting EXACTLY "THANK_YOU_VOICEPULSE" and a short, warm, appreciative goodbye.`;
 
   const formattedHistory = history
     .map(h => `${h.role === "interviewer" ? "AI Interviewer" : "Respondent"}: ${h.text}`)
@@ -315,7 +315,49 @@ function simulateInterviewerTurn(history: DialogueTurn[], campaignQuestions: str
   const nextQuestionIdx = userTurns.length;
   
   if (nextQuestionIdx < campaignQuestions.length) {
-    return campaignQuestions[nextQuestionIdx];
+    const rawQuestion = campaignQuestions[nextQuestionIdx];
+    
+    // First question has no previous response to refer to
+    if (nextQuestionIdx === 0) {
+      return rawQuestion;
+    }
+    
+    // Refer back to the previous answer
+    const lastUserTurn = userTurns[userTurns.length - 1];
+    const lastText = lastUserTurn ? lastUserTurn.text.toLowerCase() : "";
+    
+    let transitionPrefix = "";
+    if (lastText.includes("good") || lastText.includes("great") || lastText.includes("awesome") || lastText.includes("love") || lastText.includes("easy") || lastText.includes("fine")) {
+      const positiveTransitions = [
+        "That's wonderful to hear! Building on that positive experience, ",
+        "I'm glad to hear that. Expanding on that, ",
+        "Awesome! Moving forward, ",
+        "That makes total sense and sounds like a win. Let's look closer: "
+      ];
+      transitionPrefix = positiveTransitions[nextQuestionIdx % positiveTransitions.length];
+    } else if (lastText.includes("hard") || lastText.includes("error") || lastText.includes("stuck") || lastText.includes("crash") || lastText.includes("difficult") || lastText.includes("annoy") || lastText.includes("quit") || lastText.includes("frustrat")) {
+      const frictionTransitions = [
+        "I completely understand how frustrating that hurdle is. Looking further into it, ",
+        "Ouch, that sounds like a tough roadblock. Acknowledging that, ",
+        "Thanks for highlighting that friction point. To help clarify, ",
+        "That makes sense, and I understand the frustration. On a similar note, "
+      ];
+      transitionPrefix = frictionTransitions[nextQuestionIdx % frictionTransitions.length];
+    } else if (lastText.length > 0) {
+      const neutralTransitions = [
+        "Got it, thank you for sharing that. Next, ",
+        "Makes complete sense. Moving right along, ",
+        "Ah, I see. Acknowledging that, let's explore: ",
+        "That's really valuable context. To expand on that, "
+      ];
+      transitionPrefix = neutralTransitions[nextQuestionIdx % neutralTransitions.length];
+    } else {
+      transitionPrefix = "";
+    }
+    
+    // Lowercase first letter of the question so it flows into the prefix
+    const adjustedQuestion = rawQuestion.charAt(0).toLowerCase() + rawQuestion.slice(1);
+    return `${transitionPrefix}${adjustedQuestion}`;
   }
 
   return "THANK_YOU_VOICEPULSE";

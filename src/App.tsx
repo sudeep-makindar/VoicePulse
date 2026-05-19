@@ -574,21 +574,34 @@ export default function App() {
     };
     window.addEventListener("mousemove", handleMouseMove);
     
-    // Load existing sessions or seed default ones
+    // Load shared questions if present in query parameters
+    const params = new URLSearchParams(window.location.search);
+    const qsParam = params.get("questions");
+    if (qsParam) {
+      try {
+        const decoded = JSON.parse(decodeURIComponent(escape(atob(qsParam))));
+        if (Array.isArray(decoded) && decoded.length > 0) {
+          setCampaignQuestions(decoded);
+          setMode("interview");
+        }
+      } catch (e) {
+        console.error("Failed to decode shared questions parameter:", e);
+      }
+    }
+    
+    // Load existing sessions - start with an empty database if no data
     const localData = localStorage.getItem("VOICEPULSE_SESSIONS_STORE_v2");
     if (localData) {
       try {
         setSessions(JSON.parse(localData));
       } catch (e) {
-        console.error("Failed to load local storage sessions, seeding...", e);
-        const seeds = getSeedSessions();
-        setSessions(seeds);
-        localStorage.setItem("VOICEPULSE_SESSIONS_STORE_v2", JSON.stringify(seeds));
+        console.error("Failed to load local storage sessions, resetting to empty...", e);
+        setSessions([]);
+        localStorage.setItem("VOICEPULSE_SESSIONS_STORE_v2", JSON.stringify([]));
       }
     } else {
-      const seeds = getSeedSessions();
-      setSessions(seeds);
-      localStorage.setItem("VOICEPULSE_SESSIONS_STORE_v2", JSON.stringify(seeds));
+      setSessions([]);
+      localStorage.setItem("VOICEPULSE_SESSIONS_STORE_v2", JSON.stringify([]));
     }
 
     return () => window.removeEventListener("mousemove", handleMouseMove);
@@ -647,11 +660,12 @@ export default function App() {
     localStorage.setItem("VOICEPULSE_SESSIONS_STORE_v2", JSON.stringify(updated));
   };
 
-  // Force seed database refresh
+  // Clear all database sessions
   const handleResetSeeds = () => {
-    const seeds = getSeedSessions();
-    setSessions(seeds);
-    localStorage.setItem("VOICEPULSE_SESSIONS_STORE_v2", JSON.stringify(seeds));
+    if (window.confirm("Are you sure you want to purge all session records? This action is irreversible.")) {
+      setSessions([]);
+      localStorage.setItem("VOICEPULSE_SESSIONS_STORE_v2", JSON.stringify([]));
+    }
   };
 
   return (
@@ -711,13 +725,13 @@ export default function App() {
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                 >
-                  <HeroSection onStart={() => setMode("interview")} />
+                  <HeroSection onStart={() => setMode("dashboard")} />
                   <HorizontalScrollSection />
                   <PipelineSection />
-                  <FeatureSection onStart={() => setMode("interview")} />
+                  <FeatureSection onStart={() => setMode("dashboard")} />
                   <UseCases />
                   <StatsCarousel />
-                  <CTASection onStart={() => setMode("interview")} />
+                  <CTASection onStart={() => setMode("dashboard")} />
                   <Footer onGoConsole={() => setMode("dashboard")} />
                 </motion.div>
               )}
