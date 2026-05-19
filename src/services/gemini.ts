@@ -224,15 +224,56 @@ function generateHeuristicQuestions(campaignPrompt: string): string[] {
 // Helper utility to safely extract JSON arrays under strict JSON Mode constraints
 function safeParseJsonArray<T>(jsonText: string): T[] {
   try {
-    const cleanJson = jsonText.replace(/```json|```/g, "").trim();
+    let cleanJson = jsonText.trim();
+    
+    // Find first JSON bracket or brace to slice out leading/trailing chat explanations
+    const firstBracket = cleanJson.indexOf("[");
+    const firstBrace = cleanJson.indexOf("{");
+    
+    let startIndex = -1;
+    let endIndex = -1;
+    
+    if (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) {
+      startIndex = firstBracket;
+      endIndex = cleanJson.lastIndexOf("]");
+    } else if (firstBrace !== -1) {
+      startIndex = firstBrace;
+      endIndex = cleanJson.lastIndexOf("}");
+    }
+    
+    if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+      cleanJson = cleanJson.substring(startIndex, endIndex + 1);
+    }
+    
+    cleanJson = cleanJson.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleanJson);
+    
+    // 1. Raw array
     if (Array.isArray(parsed)) {
       return parsed as T[];
     }
+    
     if (parsed && typeof parsed === "object") {
+      // 2. Nested array property (e.g. {"questions": [...]})
       const firstArray = Object.values(parsed).find(val => Array.isArray(val));
       if (firstArray) {
         return firstArray as T[];
+      }
+      
+      // 3. Flat string value dictionary (e.g. {"q1": "val1", "q2": "val2"})
+      const values = Object.values(parsed);
+      if (values.every(v => typeof v === "string")) {
+        return values as unknown as T[];
+      }
+      
+      // 4. Object dictionary (e.g. {"q1": {"question": "val1"}})
+      if (values.every(v => typeof v === "object" && v !== null)) {
+        const potentialStrings = values
+          .map((v: any) => v.question || v.text || v.title || v.content || JSON.stringify(v))
+          .filter(Boolean);
+        if (potentialStrings.length > 0) {
+          return potentialStrings as unknown as T[];
+        }
       }
     }
     return [];
