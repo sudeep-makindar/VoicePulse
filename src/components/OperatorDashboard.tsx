@@ -24,7 +24,10 @@ import {
   Save,
   Loader2,
   Share2,
-  Copy
+  Copy,
+  Database,
+  Search,
+  RefreshCw
 } from "lucide-react";
 import { 
   PipelineResult, 
@@ -36,6 +39,7 @@ import {
 } from "../services/gemini";
 import { getSheetsUrl, saveSheetsUrl } from "../services/sheets";
 import { AuthUserButton } from "./AuthGate";
+import SheetAnalyzerUI from "../analyzer/SheetAnalyzerUI";
 
 interface OperatorDashboardProps {
   sessions: { id: string; name: string; context: string; timestamp: string; result: PipelineResult }[];
@@ -51,7 +55,7 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
   const [apiKeyInput, setApiKeyInput] = useState(getApiKey());
   const [sheetsUrlInput, setSheetsUrlInput] = useState(getSheetsUrl());
   const [showKeyPanel, setShowKeyPanel] = useState(false);
-  const [activeTab, setActiveTab] = useState<"session" | "cluster" | "campaign">("session");
+  const [activeTab, setActiveTab] = useState<"session" | "cluster" | "campaign" | "sheet">("session");
   const [expandedTranscript, setExpandedTranscript] = useState(false);
 
   // Campaign Designer State
@@ -346,9 +350,21 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
           >
             CAMPAIGN_DESIGNER
           </button>
+          <button
+            onClick={() => setActiveTab("sheet")}
+            className={`px-6 py-3 font-mono text-xs border-b-2 transition-all ${
+              activeTab === "sheet" 
+                ? "border-emerald-400 text-emerald-400 font-bold bg-emerald-400/[0.02]" 
+                : "border-transparent text-brand-muted hover:text-white"
+            }`}
+          >
+            SHEET_ANALYSER
+          </button>
         </div>
 
-        {activeTab === "campaign" ? (
+        {activeTab === "sheet" ? (
+          <SheetAnalyzerUI />
+        ) : activeTab === "campaign" ? (
           // ================== CAMPAIGN DESIGNER VIEW ==================
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -637,7 +653,9 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
                 sessions.map((sess) => {
                   const isSelected = sess.id === selectedSessionId;
                   const scores = sess.result.synthesis.heatmap.map(h => h.score);
-                  const averageScore = Math.round(scores.reduce((a,b)=>a+b, 0)/(scores.length || 1));
+                  const averageScore = scores.length > 0 
+                    ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) 
+                    : 0;
                   
                   return (
                     <div 

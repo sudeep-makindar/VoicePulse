@@ -680,11 +680,7 @@ export default function App() {
       </AnimatePresence>
 
       {!loading && (
-        <motion.div
-           initial={{ opacity: 0 }}
-           animate={{ opacity: 1 }}
-           transition={{ duration: 0.5 }}
-        >
+        <div className="opacity-100">
           {/* Navigation Bar */}
           <nav className="fixed top-0 left-0 w-full z-40 p-8 flex justify-between items-center mix-blend-difference">
             <button 
@@ -794,7 +790,7 @@ export default function App() {
 
             </AnimatePresence>
           </main>
-        </motion.div>
+        </div>
       )}
     </div>
   );

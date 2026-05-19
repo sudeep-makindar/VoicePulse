@@ -43,7 +43,7 @@ export interface PipelineResult {
 }
 
 // Fetch helper that uses NVIDIA integrate API to call minimaxai/minimax-m2.7
-async function callNvidiaNim(apiKey: string, prompt: string, systemInstruction?: string, isJson: boolean = false): Promise<string> {
+export async function callNvidiaNim(apiKey: string, prompt: string, systemInstruction?: string, isJson: boolean = false): Promise<string> {
   try {
     const url = "https://integrate.api.nvidia.com/v1/chat/completions";
     const messages = [];
