@@ -154,15 +154,71 @@ Pulse:`;
   }
 }
 
+// Heuristic Offline Campaign Questions Generator (no slicing/mock ellipsis)
+function generateHeuristicQuestions(campaignPrompt: string): string[] {
+  const cleanPrompt = campaignPrompt.trim();
+  const lowerPrompt = cleanPrompt.toLowerCase();
+
+  // 1. Interactive Recruitment / Interviews
+  if (lowerPrompt.includes("interview") || lowerPrompt.includes("recruit") || lowerPrompt.includes("candidate")) {
+    return [
+      "How did you feel about the overall atmosphere and level of interaction during the interview?",
+      "What specifically made the conversation feel engaging, interactive, or fun for you?",
+      "What is one change that would make the interview experience more comfortable or conversational?"
+    ];
+  }
+
+  // 2. Setup / Onboarding
+  if (lowerPrompt.includes("onboard") || lowerPrompt.includes("setup") || lowerPrompt.includes("install") || lowerPrompt.includes("start")) {
+    return [
+      "What was your first impression when setting up and getting started?",
+      "Where did you feel the most friction or confusion during the onboarding process?",
+      "What is one key improvement that would make the setup completely seamless?"
+    ];
+  }
+
+  // 3. User Interface / Design
+  if (lowerPrompt.includes("design") || lowerPrompt.includes("ui") || lowerPrompt.includes("ux") || lowerPrompt.includes("visual") || lowerPrompt.includes("look")) {
+    return [
+      "What was your initial reaction to the overall visual design and layout?",
+      "Were there any specific parts of the interface that felt confusing or cluttered?",
+      "What change would make the user interface feel more modern and delightful to use?"
+    ];
+  }
+
+  // 4. Performance / Speed
+  if (lowerPrompt.includes("speed") || lowerPrompt.includes("performance") || lowerPrompt.includes("fast") || lowerPrompt.includes("slow") || lowerPrompt.includes("lag")) {
+    return [
+      "How did you feel about the overall speed and responsiveness of the system?",
+      "Did you encounter any specific delays, lag, or slow load times during your session?",
+      "What would make the system feel snappier or more high-performance?"
+    ];
+  }
+
+  // 5. General / Catch-all subject extractor
+  let subject = "the experience";
+  const focusMatch = cleanPrompt.match(/(?:feedback on|regarding|about|for)\s+([^,.]+)/i);
+  if (focusMatch && focusMatch[1]) {
+    subject = focusMatch[1].trim();
+  } else if (cleanPrompt.length < 50) {
+    subject = cleanPrompt.replace(/[.?]$/, "");
+  } else {
+    const words = cleanPrompt.split(/\s+/).slice(0, 5).join(" ");
+    subject = words.replace(/[,.?]$/, "");
+  }
+
+  return [
+    `What was your overall impression of ${subject}?`,
+    `What felt like the most challenging part or roadblock during ${subject}?`,
+    `What is one thing that would make ${subject} absolutely delightful for you?`
+  ];
+}
+
 // AI Campaign Generator: Defines a set of 3 target feedback questions based on operator prompt
 export async function generateCampaignQuestions(campaignPrompt: string): Promise<string[]> {
   const apiKey = getApiKey();
   if (!apiKey) {
-    return [
-      `What is your overall impression regarding: "${campaignPrompt.slice(0, 40)}..."?`,
-      "What was the most challenging part or roadblock you faced?",
-      "What suggestions do you have to make this experience better?"
-    ];
+    return generateHeuristicQuestions(campaignPrompt);
   }
 
   // IMPROVED: Voice-aware constraints, no compound questions, few-shot example anchors format
@@ -186,16 +242,12 @@ Output:`;
     const cleanJson = responseText.replace(/```json|```/g, "").trim();
     const questions: string[] = JSON.parse(cleanJson);
     if (Array.isArray(questions) && questions.length > 0) {
-      return questions.slice(0, 4);
+      return questions.slice(0, 3); // Make sure we only take exactly 3 questions
     }
     throw new Error("Invalid format returned");
   } catch (error) {
     console.error("Failed to generate campaign questions with NVIDIA NIM, falling back to heuristic generation:", error);
-    return [
-      `What is your feedback regarding: "${campaignPrompt.slice(0, 45)}..."?`,
-      "What specific difficulties or challenges did you encounter?",
-      "What is one key improvement or feature you would suggest?"
-    ];
+    return generateHeuristicQuestions(campaignPrompt);
   }
 }
 
