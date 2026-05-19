@@ -33,7 +33,11 @@ export interface SheetRow {
 }
 
 export function getSheetsUrl(): string {
-  return import.meta.env.VITE_GOOGLE_SHEETS_URL || "";
+  const envUrl = (import.meta as any).env?.VITE_GOOGLE_SHEETS_URL;
+  if (envUrl && envUrl.trim() !== "") return envUrl;
+
+  // Fallback default Apps Script URL
+  return "https://script.google.com/macros/s/AKfycbxML-Ay3CuCNN_Iz3RDP2nUlEoWA8ctS_XCS_QlQeMe7ZgWs4a-xzJ4YWEJsQzxfYysuQ/exec";
 }
 
 export function saveSheetsUrl(url: string) {
