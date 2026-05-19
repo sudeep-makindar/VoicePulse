@@ -90,7 +90,11 @@ export function getApiKey(): string {
   const localKey = localStorage.getItem("VOICEPULSE_NVIDIA_API_KEY");
   if (localKey && localKey.trim() !== "") return localKey;
 
-  const envKey = (process.env as any).NVIDIA_API_KEY;
+  // In Vite apps, environment variables must start with VITE_ to be exposed to client-side code
+  const viteEnvKey = (import.meta as any).env?.VITE_NVIDIA_API_KEY;
+  if (viteEnvKey && viteEnvKey !== "MY_NVIDIA_API_KEY" && viteEnvKey.trim() !== "") return viteEnvKey;
+
+  const envKey = (process.env as any).NVIDIA_API_KEY || (import.meta as any).env?.VITE_NVIDIA_API_KEY;
   if (envKey && envKey !== "MY_NVIDIA_API_KEY" && envKey.trim() !== "") return envKey;
 
   return "";
