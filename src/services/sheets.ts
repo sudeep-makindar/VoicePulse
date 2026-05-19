@@ -33,15 +33,11 @@ export interface SheetRow {
 }
 
 export function getSheetsUrl(): string {
-  return localStorage.getItem("VOICEPULSE_SHEETS_URL") || "";
+  return import.meta.env.VITE_GOOGLE_SHEETS_URL || "";
 }
 
 export function saveSheetsUrl(url: string) {
-  if (url.trim()) {
-    localStorage.setItem("VOICEPULSE_SHEETS_URL", url.trim());
-  } else {
-    localStorage.removeItem("VOICEPULSE_SHEETS_URL");
-  }
+  // No-op, managed by environment variables
 }
 
 function buildRow(

@@ -53,7 +53,7 @@ interface OperatorDashboardProps {
 export default function OperatorDashboard({ sessions, campaignQuestions, setCampaignQuestions, onDeleteSession, onResetSeeds, onBackToLanding }: OperatorDashboardProps) {
   const [selectedSessionId, setSelectedSessionId] = useState<string>(sessions[0]?.id || "");
   const [apiKeyInput, setApiKeyInput] = useState(getApiKey());
-  const [sheetsUrlInput, setSheetsUrlInput] = useState(getSheetsUrl());
+
   const [showKeyPanel, setShowKeyPanel] = useState(false);
   const [activeTab, setActiveTab] = useState<"session" | "cluster" | "campaign" | "sheet">("session");
   const [expandedTranscript, setExpandedTranscript] = useState(false);
@@ -76,15 +76,12 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
   // Handle saving API key
   const handleSaveKey = () => {
     saveApiKey(apiKeyInput);
-    saveSheetsUrl(sheetsUrlInput);
     setShowKeyPanel(false);
   };
 
   const handleClearKey = () => {
     saveApiKey("");
     setApiKeyInput("");
-    saveSheetsUrl("");
-    setSheetsUrlInput("");
     setShowKeyPanel(false);
   };
 
@@ -227,28 +224,7 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
                 />
               </div>
 
-              <div className="flex flex-col gap-2">
-                <label className="font-mono text-[10px] text-brand-muted uppercase tracking-widest flex items-center gap-2">
-                  <span>Google Sheets Apps Script URL</span>
-                  <span className={`px-1.5 py-0.5 rounded text-[9px] border ${
-                    getSheetsUrl() 
-                      ? "text-emerald-400 border-emerald-500/20 bg-emerald-950/20" 
-                      : "text-yellow-400 border-yellow-500/20 bg-yellow-950/20"
-                  }`}>
-                    {getSheetsUrl() ? "CONNECTED" : "NOT SET"}
-                  </span>
-                </label>
-                <input
-                  type="url"
-                  value={sheetsUrlInput}
-                  onChange={(e) => setSheetsUrlInput(e.target.value)}
-                  placeholder="https://script.google.com/macros/s/.../exec"
-                  className="bg-brand-dark border border-white/10 focus:border-emerald-400/40 rounded-xl px-4 py-3 text-white outline-none font-mono text-xs"
-                />
-                <p className="text-[10px] text-brand-muted font-body">
-                  Deploy a Google Apps Script Web App and paste its URL above. See README for the Apps Script code.
-                </p>
-              </div>
+
 
               <div className="flex justify-between items-center gap-4 mt-2">
                 <button

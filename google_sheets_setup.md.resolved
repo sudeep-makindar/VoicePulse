@@ -109,12 +109,13 @@ function doGet(e) {
 
 ## Step 4 — Connect to VoicePulse
 
-1. Open VoicePulse in your browser
-2. Navigate to **Operator Console → MANAGE_API_KEYS**
-3. Paste the Apps Script URL into the **Google Sheets Apps Script URL** field
-4. Click **SAVE_SETTINGS**
+1. Open the `.env` file in your VoicePulse project directory.
+2. Add the following line at the bottom:
+   `VITE_GOOGLE_SHEETS_URL="YOUR_WEB_APP_URL_HERE"`
+3. Replace `"YOUR_WEB_APP_URL_HERE"` with the URL you copied in Step 3.
+4. Restart your VoicePulse development server (`npm run dev`).
 
-The header badge will immediately change from `SHEETS_OFF` to `SHEETS_CONNECTED` ✅.
+The header badge in the Operator Console will immediately change from `SHEETS_OFF` to `SHEETS_CONNECTED` ✅.
 
 ---
 
