@@ -15,30 +15,47 @@ import {
   ChevronUp,
   FileCheck,
   TrendingUp,
-  Compass
+  Compass,
+  PlusCircle,
+  Wand2,
+  GripVertical,
+  X,
+  ClipboardList,
+  Save,
+  Loader2
 } from "lucide-react";
 import { 
   PipelineResult, 
   getApiKey, 
   saveApiKey, 
   HindsightCorrection, 
-  ChunkClassification 
+  ChunkClassification,
+  generateCampaignQuestions
 } from "../services/gemini";
 import { AuthUserButton } from "./AuthGate";
 
 interface OperatorDashboardProps {
   sessions: { id: string; name: string; context: string; timestamp: string; result: PipelineResult }[];
+  campaignQuestions: string[];
+  setCampaignQuestions: (questions: string[]) => void;
   onDeleteSession: (id: string) => void;
   onResetSeeds: () => void;
   onBackToLanding: () => void;
 }
 
-export default function OperatorDashboard({ sessions, onDeleteSession, onResetSeeds, onBackToLanding }: OperatorDashboardProps) {
+export default function OperatorDashboard({ sessions, campaignQuestions, setCampaignQuestions, onDeleteSession, onResetSeeds, onBackToLanding }: OperatorDashboardProps) {
   const [selectedSessionId, setSelectedSessionId] = useState<string>(sessions[0]?.id || "");
   const [apiKeyInput, setApiKeyInput] = useState(getApiKey());
   const [showKeyPanel, setShowKeyPanel] = useState(false);
-  const [activeTab, setActiveTab] = useState<"session" | "cluster">("session");
+  const [activeTab, setActiveTab] = useState<"session" | "cluster" | "campaign">("session");
   const [expandedTranscript, setExpandedTranscript] = useState(false);
+
+  // Campaign Designer State
+  const [campaignPrompt, setCampaignPrompt] = useState("");
+  const [draftQuestions, setDraftQuestions] = useState<string[]>(campaignQuestions);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
+  const [savedSuccess, setSavedSuccess] = useState(false);
 
   // Active session helper
   const selectedSession = useMemo(() => {
@@ -262,7 +279,6 @@ export default function OperatorDashboard({ sessions, onDeleteSession, onResetSe
           </div>
         </section>
 
-        {/* View Toggle Tabs */}
         <div className="flex border-b border-white/5 pb-0">
           <button
             onClick={() => setActiveTab("session")}
@@ -284,9 +300,176 @@ export default function OperatorDashboard({ sessions, onDeleteSession, onResetSe
           >
             GLOBAL_THEME_CLUSTERING ({globalThemes.length})
           </button>
+          <button
+            onClick={() => setActiveTab("campaign")}
+            className={`px-6 py-3 font-mono text-xs border-b-2 transition-all ${
+              activeTab === "campaign" 
+                ? "border-purple-400 text-purple-400 font-bold bg-purple-400/[0.02]" 
+                : "border-transparent text-brand-muted hover:text-white"
+            }`}
+          >
+            CAMPAIGN_DESIGNER
+          </button>
         </div>
 
-        {activeTab === "cluster" ? (
+        {activeTab === "campaign" ? (
+          // ================== CAMPAIGN DESIGNER VIEW ==================
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="grid grid-cols-1 lg:grid-cols-2 gap-8"
+          >
+            {/* LEFT: AI Prompt Generator */}
+            <div className="glass border border-purple-500/20 rounded-2xl p-8 flex flex-col gap-6">
+              <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+                <Wand2 className="text-purple-400" size={20} />
+                <div>
+                  <h3 className="text-xl font-display text-white">AI QUESTION GENERATOR</h3>
+                  <p className="text-xs text-brand-muted font-mono mt-0.5">Describe your feedback goal — AI writes the questions</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <label className="font-mono text-[10px] text-brand-muted uppercase tracking-widest">Campaign Goal / Prompt</label>
+                <textarea
+                  value={campaignPrompt}
+                  onChange={e => setCampaignPrompt(e.target.value)}
+                  rows={5}
+                  placeholder={`e.g. "Collect feedback on the onboarding experience of our developer API platform — focus on setup difficulty, documentation clarity, and first-run success."`}
+                  className="bg-brand-dark border border-white/10 focus:border-purple-400/40 rounded-xl px-4 py-3 text-white outline-none font-body text-sm resize-none placeholder-brand-muted/40 transition-all"
+                />
+              </div>
+
+              {generateError && (
+                <div className="flex items-center gap-2 text-red-400 font-mono text-xs border border-red-500/20 bg-red-950/20 px-4 py-2 rounded-lg">
+                  <X size={12} />
+                  <span>{generateError}</span>
+                </div>
+              )}
+
+              <button
+                onClick={async () => {
+                  if (!campaignPrompt.trim()) {
+                    setGenerateError("Please enter a campaign goal or description first.");
+                    return;
+                  }
+                  setGenerateError("");
+                  setIsGenerating(true);
+                  try {
+                    const questions = await generateCampaignQuestions(campaignPrompt.trim());
+                    setDraftQuestions(questions);
+                  } catch (e) {
+                    setGenerateError("AI generation failed. Please try again or add questions manually.");
+                  } finally {
+                    setIsGenerating(false);
+                  }
+                }}
+                disabled={isGenerating || !campaignPrompt.trim()}
+                className="flex items-center justify-center gap-2 px-5 py-3 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 hover:border-purple-500/60 text-purple-400 font-mono text-sm rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {isGenerating ? (
+                  <><Loader2 size={16} className="animate-spin" /> GENERATING_QUESTIONS...</>
+                ) : (
+                  <><Wand2 size={16} /> GENERATE_WITH_AI</>
+                )}
+              </button>
+
+              <div className="border-t border-white/5 pt-4">
+                <p className="text-xs text-brand-muted font-body leading-relaxed">
+                  <span className="text-purple-400 font-mono">TIP:</span> Without an NVIDIA API key, a heuristic fallback will generate 3 placeholder questions based on your prompt.
+                </p>
+              </div>
+            </div>
+
+            {/* RIGHT: Manual Question Editor */}
+            <div className="glass border border-white/5 rounded-2xl p-8 flex flex-col gap-6">
+              <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                <div className="flex items-center gap-3">
+                  <ClipboardList className="text-brand-acid" size={20} />
+                  <div>
+                    <h3 className="text-xl font-display text-white">QUESTION EDITOR</h3>
+                    <p className="text-xs text-brand-muted font-mono mt-0.5">{draftQuestions.length} question{draftQuestions.length !== 1 ? "s" : ""} active</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDraftQuestions(prev => [...prev, ""])}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono text-brand-acid border border-brand-acid/30 bg-brand-acid/5 hover:bg-brand-acid/10 rounded-lg transition-all cursor-pointer"
+                >
+                  <PlusCircle size={13} /> ADD
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-3 flex-1 overflow-y-auto max-h-80 pr-1 scrollbar-thin">
+                {draftQuestions.map((q, idx) => (
+                  <motion.div
+                    key={idx}
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-start gap-3"
+                  >
+                    <div className="flex items-center gap-2 pt-2.5">
+                      <GripVertical size={14} className="text-brand-muted/40" />
+                      <span className="font-mono text-[10px] text-brand-acid/60 w-4">{idx + 1}</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={q}
+                      onChange={e => {
+                        const updated = [...draftQuestions];
+                        updated[idx] = e.target.value;
+                        setDraftQuestions(updated);
+                      }}
+                      placeholder={`Question ${idx + 1}...`}
+                      className="flex-1 bg-brand-dark border border-white/10 focus:border-brand-acid/40 rounded-xl px-4 py-2.5 text-white outline-none font-body text-sm placeholder-brand-muted/30 transition-all"
+                    />
+                    <button
+                      onClick={() => setDraftQuestions(prev => prev.filter((_, i) => i !== idx))}
+                      className="pt-2.5 text-brand-muted hover:text-red-400 transition-colors cursor-pointer"
+                      title="Remove question"
+                    >
+                      <X size={15} />
+                    </button>
+                  </motion.div>
+                ))}
+                {draftQuestions.length === 0 && (
+                  <div className="flex flex-col items-center gap-3 py-10 text-brand-muted">
+                    <ClipboardList size={32} className="opacity-20" />
+                    <p className="font-mono text-xs">No questions yet. Add manually or generate with AI.</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-between items-center border-t border-white/5 pt-4 gap-3">
+                <button
+                  onClick={() => setDraftQuestions(campaignQuestions)}
+                  className="px-4 py-2 text-xs font-mono border border-white/10 text-brand-muted hover:text-white hover:border-white/20 rounded-xl transition-all cursor-pointer"
+                >
+                  DISCARD_CHANGES
+                </button>
+                <button
+                  onClick={() => {
+                    const valid = draftQuestions.filter(q => q.trim() !== "");
+                    if (valid.length === 0) {
+                      setGenerateError("Please add at least one question.");
+                      return;
+                    }
+                    setCampaignQuestions(valid);
+                    localStorage.setItem("VOICEPULSE_CAMPAIGN_QUESTIONS", JSON.stringify(valid));
+                    setSavedSuccess(true);
+                    setTimeout(() => setSavedSuccess(false), 2500);
+                  }}
+                  className="flex items-center gap-2 px-5 py-2 text-xs font-mono bg-brand-acid text-brand-dark font-bold rounded-xl hover:shadow-[0_0_20px_rgba(200,255,0,0.3)] transition-all cursor-pointer"
+                >
+                  {savedSuccess ? (
+                    <><FileCheck size={14} /> SAVED!</>
+                  ) : (
+                    <><Save size={14} /> SAVE_CAMPAIGN</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        ) : activeTab === "cluster" ? (
           // ================== GLOBAL CLUSTERING VIEW ==================
           <motion.div 
             initial={{ opacity: 0, y: 10 }}

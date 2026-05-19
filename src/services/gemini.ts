@@ -105,29 +105,39 @@ export function saveApiKey(key: string) {
 }
 
 // AI Interviewer: Determines next turn
-export async function getNextInterviewerTurn(history: DialogueTurn[]): Promise<string> {
+export async function getNextInterviewerTurn(history: DialogueTurn[], campaignQuestions?: string[]): Promise<string> {
   const apiKey = getApiKey();
   
+  const activeQuestions = campaignQuestions && campaignQuestions.length > 0
+    ? campaignQuestions
+    : [
+        "What was your overall impression of the event or product?",
+        "What specifically felt like a hurdle or roadblock during onboarding?",
+        "If you could change just one thing to make this experience absolutely delightful, what would that be?"
+      ];
+
   if (!apiKey) {
-    return simulateInterviewerTurn(history);
+    return simulateInterviewerTurn(history, activeQuestions);
   }
 
   const systemInstruction = `You are VoicePulse AI, an empathetic, premium, conversational feedback agent. 
-Your goal is to conduct a fast, voice-first feedback interview (max 3-4 questions total).
-The user is speaking to you. You must:
-1. Listen closely to what they say.
-2. Respond conversationally, keeping questions concise (under 20 words) since they are read out loud.
-3. If their statement was brief or vague (e.g., "it was good" or "the setup was tough"), probe gently for details (e.g., "What specifically was difficult about the setup?").
-4. Never ask double-barreled or complex multi-part questions. One question at a time.
-5. If the conversation has covered their main thoughts (about 2-3 user turns), or if they express they have nothing more to add, conclude by outputting EXACTLY "THANK_YOU_VOICEPULSE" and a short wrap-up message.
+Your goal is to conduct a fast, voice-first feedback interview based strictly on the operator's configured questions.
+Here are the campaign questions the operator wants you to cover:
+${activeQuestions.map((q, idx) => `${idx + 1}. "${q}"`).join("\n")}
 
-Current history of conversation is provided below.`;
+Instructions:
+1. Conduct the interview step-by-step.
+2. The user is responding to your questions. Listen to their responses.
+3. If they give a vague or short answer, probe gently before moving to the next question.
+4. Keep your follow-up questions conversational and extremely concise (under 20 words) since they are read out loud.
+5. Cover all questions in the list sequentially.
+6. Once all questions have been covered, or if the user has no more feedback, conclude by outputting EXACTLY "THANK_YOU_VOICEPULSE" and a short, warm appreciation message.`;
 
   const formattedHistory = history
     .map(h => `${h.role === "interviewer" ? "AI Interviewer" : "Respondent"}: ${h.text}`)
     .join("\n");
 
-  const prompt = `Review the dialog history below and generate the next turn.
+  const prompt = `Review the dialogue history below and generate the next turn.
 
 ${formattedHistory}
 
@@ -138,7 +148,44 @@ AI Interviewer:`;
     return responseText.trim();
   } catch (error) {
     console.error("NVIDIA NIM interviewer error, falling back to simulator:", error);
-    return simulateInterviewerTurn(history);
+    return simulateInterviewerTurn(history, activeQuestions);
+  }
+}
+
+// AI Campaign Generator: Defines a set of 3 target feedback questions based on operator prompt
+export async function generateCampaignQuestions(campaignPrompt: string): Promise<string[]> {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    return [
+      `What is your overall impression regarding: "${campaignPrompt.slice(0, 40)}..."?`,
+      "What was the most challenging part or roadblock you faced?",
+      "What suggestions do you have to make this experience better?"
+    ];
+  }
+
+  const systemInstruction = `You are VoicePulse Campaign Architect, a senior UX researcher.
+Your job is to read an operator's feedback collection goal, and define exactly 3 highly specific, clear, conversational, and direct questions that need to be asked to respondents verbally.
+Ensure each question is concise (under 20 words) and focuses on a single aspect to avoid overwhelming the user during a voice chat.
+Output ONLY a valid JSON array of strings containing exactly 3 questions. Do not include markdown code block formatting or conversational text outside the JSON.`;
+
+  const prompt = `Goal: ${campaignPrompt}
+Output:`;
+
+  try {
+    const responseText = await callNvidiaNim(apiKey, prompt, systemInstruction, true);
+    const cleanJson = responseText.replace(/```json|```/g, "").trim();
+    const questions: string[] = JSON.parse(cleanJson);
+    if (Array.isArray(questions) && questions.length > 0) {
+      return questions.slice(0, 4);
+    }
+    throw new Error("Invalid format returned");
+  } catch (error) {
+    console.error("Failed to generate campaign questions with NVIDIA NIM, falling back to heuristic generation:", error);
+    return [
+      `What is your feedback regarding: "${campaignPrompt.slice(0, 45)}..."?`,
+      "What specific difficulties or challenges did you encounter?",
+      "What is one key improvement or feature you would suggest?"
+    ];
   }
 }
 
@@ -263,27 +310,12 @@ ${JSON.stringify(verifiedChunks)}`;
 // SIMULATION ENGINE (Fallback and Demo Mode)
 // ==========================================
 
-function simulateInterviewerTurn(history: DialogueTurn[]): string {
+function simulateInterviewerTurn(history: DialogueTurn[], campaignQuestions: string[]): string {
   const userTurns = history.filter(h => h.role === "respondent");
+  const nextQuestionIdx = userTurns.length;
   
-  if (userTurns.length === 0) {
-    return "Hey there! Thanks for taking the time to share your feedback. To get us started, what was your overall impression of the event or product?";
-  }
-  
-  if (userTurns.length === 1) {
-    const text = userTurns[0].text.toLowerCase();
-    if (text.includes("okay") || text.includes("fine") || text.includes("good") || text.length < 20) {
-      return "Thanks for that. You mentioned it was okay—was there a specific moment or feature that stood out as particularly good, or something that felt like a hurdle?";
-    }
-    return "Got it. That makes sense. Let's talk about the setup or onboarding process. How did that feel for you? Did you encounter any roadblocks?";
-  }
-  
-  if (userTurns.length === 2) {
-    const text = userTurns[1].text.toLowerCase();
-    if (text.includes("error") || text.includes("bug") || text.includes("stuck") || text.includes("hard") || text.includes("slow")) {
-      return "Oh, that sounds frustrating. Could you elaborate on what happened when you hit that roadblock, and how you eventually got past it?";
-    }
-    return "Excellent. Finally, if you could change just one thing to make this experience absolutely delightful, what would that be?";
+  if (nextQuestionIdx < campaignQuestions.length) {
+    return campaignQuestions[nextQuestionIdx];
   }
 
   return "THANK_YOU_VOICEPULSE";

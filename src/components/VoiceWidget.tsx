@@ -4,11 +4,12 @@ import { Mic, MicOff, Send, Volume2, VolumeX, AlertTriangle, ArrowRight, CornerD
 import { DialogueTurn, getNextInterviewerTurn } from "../services/gemini";
 
 interface VoiceWidgetProps {
+  campaignQuestions?: string[];
   onSessionComplete: (history: DialogueTurn[]) => void;
   onCancel: () => void;
 }
 
-export default function VoiceWidget({ onSessionComplete, onCancel }: VoiceWidgetProps) {
+export default function VoiceWidget({ campaignQuestions, onSessionComplete, onCancel }: VoiceWidgetProps) {
   const [history, setHistory] = useState<DialogueTurn[]>([]);
   const [currentText, setCurrentText] = useState("");
   const [isListening, setIsListening] = useState(false);
@@ -29,9 +30,13 @@ export default function VoiceWidget({ onSessionComplete, onCancel }: VoiceWidget
     
     // Start with the initial interviewer question
     const startInterview = async () => {
+      const initialText = (campaignQuestions && campaignQuestions.length > 0) 
+        ? campaignQuestions[0] 
+        : "Hey there! Thanks for taking the time to share your feedback. To get us started, what was your overall impression of our event or product?";
+        
       const initialTurn: DialogueTurn = {
         role: "interviewer",
-        text: "Hey there! Thanks for taking the time to share your feedback. To get us started, what was your overall impression of our event or product?",
+        text: initialText,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       
@@ -192,7 +197,7 @@ export default function VoiceWidget({ onSessionComplete, onCancel }: VoiceWidget
     setIsSpeaking(true);
     
     try {
-      const nextTurnText = await getNextInterviewerTurn(updatedHistory);
+      const nextTurnText = await getNextInterviewerTurn(updatedHistory, campaignQuestions);
       
       if (nextTurnText.includes("THANK_YOU_VOICEPULSE")) {
         // Conclude interview
