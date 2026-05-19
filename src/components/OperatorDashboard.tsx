@@ -32,6 +32,7 @@ import {
   ChunkClassification,
   generateCampaignQuestions
 } from "../services/gemini";
+import { getSheetsUrl, saveSheetsUrl } from "../services/sheets";
 import { AuthUserButton } from "./AuthGate";
 
 interface OperatorDashboardProps {
@@ -46,6 +47,7 @@ interface OperatorDashboardProps {
 export default function OperatorDashboard({ sessions, campaignQuestions, setCampaignQuestions, onDeleteSession, onResetSeeds, onBackToLanding }: OperatorDashboardProps) {
   const [selectedSessionId, setSelectedSessionId] = useState<string>(sessions[0]?.id || "");
   const [apiKeyInput, setApiKeyInput] = useState(getApiKey());
+  const [sheetsUrlInput, setSheetsUrlInput] = useState(getSheetsUrl());
   const [showKeyPanel, setShowKeyPanel] = useState(false);
   const [activeTab, setActiveTab] = useState<"session" | "cluster" | "campaign">("session");
   const [expandedTranscript, setExpandedTranscript] = useState(false);
@@ -65,15 +67,16 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
   // Handle saving API key
   const handleSaveKey = () => {
     saveApiKey(apiKeyInput);
+    saveSheetsUrl(sheetsUrlInput);
     setShowKeyPanel(false);
-    alert("Gemini API key updated successfully! New sessions will run live.");
   };
 
   const handleClearKey = () => {
     saveApiKey("");
     setApiKeyInput("");
+    saveSheetsUrl("");
+    setSheetsUrlInput("");
     setShowKeyPanel(false);
-    alert("Gemini API key cleared. Swapped to simulation fallback engine.");
   };
 
   // Cross-session stats calculations
@@ -155,7 +158,14 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
           <div className="flex items-center gap-2">
             <div className={`w-2.5 h-2.5 rounded-full ${getApiKey() ? "bg-emerald-500 animate-pulse" : "bg-yellow-500 animate-pulse"}`} />
             <span className="font-mono text-xs text-brand-muted">
-              {getApiKey() ? "LIVE_GEMINI" : "SIMULATED_AI"}
+              {getApiKey() ? "LIVE_NIM" : "SIMULATED_AI"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className={`w-2.5 h-2.5 rounded-full ${getSheetsUrl() ? "bg-emerald-500 animate-pulse" : "bg-white/20"}`} />
+            <span className="font-mono text-xs text-brand-muted">
+              {getSheetsUrl() ? "SHEETS_CONNECTED" : "SHEETS_OFF"}
             </span>
           </div>
 
@@ -186,7 +196,7 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-md glass border border-brand-acid/30 rounded-2xl p-8 flex flex-col gap-6"
+              className="w-full max-w-lg glass border border-brand-acid/30 rounded-2xl p-8 flex flex-col gap-6 max-h-[90vh] overflow-y-auto scrollbar-thin"
             >
               <div className="flex items-center gap-3 border-b border-brand-acid/10 pb-4">
                 <Key className="text-brand-acid" />
@@ -194,20 +204,41 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
               </div>
               
               <p className="text-xs text-brand-muted font-body leading-relaxed">
-                By default, VoicePulse executes a highly sophisticated in-memory cognitive simulator to showcase CascadeFlow sequential logs and Hindsight overrides immediately.
-                <br /><br />
-                To experience genuine zero-bias intelligence, paste a Google Gemini API Key from Google AI Studio.
+                Configure your NVIDIA NIM API key for live AI analysis, and your Google Sheets URL to automatically record every feedback session as a new row.
               </p>
 
               <div className="flex flex-col gap-2">
-                <label className="font-mono text-[10px] text-brand-muted uppercase">Gemini Studio API Key</label>
+                <label className="font-mono text-[10px] text-brand-muted uppercase tracking-widest">NVIDIA NIM API Key</label>
                 <input
                   type="password"
                   value={apiKeyInput}
                   onChange={(e) => setApiKeyInput(e.target.value)}
-                  placeholder="AIzaSy..."
+                  placeholder="nvapi-..."
                   className="bg-brand-dark border border-white/10 focus:border-brand-acid/40 rounded-xl px-4 py-3 text-white outline-none font-mono text-sm"
                 />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="font-mono text-[10px] text-brand-muted uppercase tracking-widest flex items-center gap-2">
+                  <span>Google Sheets Apps Script URL</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] border ${
+                    getSheetsUrl() 
+                      ? "text-emerald-400 border-emerald-500/20 bg-emerald-950/20" 
+                      : "text-yellow-400 border-yellow-500/20 bg-yellow-950/20"
+                  }`}>
+                    {getSheetsUrl() ? "CONNECTED" : "NOT SET"}
+                  </span>
+                </label>
+                <input
+                  type="url"
+                  value={sheetsUrlInput}
+                  onChange={(e) => setSheetsUrlInput(e.target.value)}
+                  placeholder="https://script.google.com/macros/s/.../exec"
+                  className="bg-brand-dark border border-white/10 focus:border-emerald-400/40 rounded-xl px-4 py-3 text-white outline-none font-mono text-xs"
+                />
+                <p className="text-[10px] text-brand-muted font-body">
+                  Deploy a Google Apps Script Web App and paste its URL above. See README for the Apps Script code.
+                </p>
               </div>
 
               <div className="flex justify-between items-center gap-4 mt-2">
@@ -216,7 +247,7 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
                   disabled={!getApiKey()}
                   className="px-4 py-2 text-xs font-mono border border-red-500/20 text-red-400 hover:bg-red-500/10 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  DEACTIVATE_KEY
+                  CLEAR_ALL_KEYS
                 </button>
                 
                 <div className="flex gap-3">
@@ -230,7 +261,7 @@ export default function OperatorDashboard({ sessions, campaignQuestions, setCamp
                     onClick={handleSaveKey}
                     className="px-5 py-2 text-xs font-mono bg-brand-acid text-brand-dark font-bold rounded-xl hover:shadow-[0_0_20px_rgba(200,255,0,0.3)] transition-all"
                   >
-                    SAVE_KEY
+                    SAVE_SETTINGS
                   </button>
                 </div>
               </div>

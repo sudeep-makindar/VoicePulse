@@ -1,0 +1,119 @@
+# VoicePulse → Google Sheets Integration
+
+## Step 1 — Create a Google Sheet
+
+1. Open [Google Sheets](https://sheets.google.com) and create a new spreadsheet.
+2. Name it `VoicePulse Responses` (or anything you like).
+3. Add a header row in **Row 1** with these exact column names:
+
+| A | B | C | D | E | F | G | H | I | J | K | L | M | N | O | P | Q | R |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Timestamp | Session ID | Respondent Name | Context | Q1 | A1 | Q2 | A2 | Q3 | A3 | Q4 | A4 | Q5 | A5 | Summary | Avg Sentiment | Themes | Actions | Hindsight Corrections |
+
+> [!TIP]
+> You can skip the headers — the script appends data regardless. Headers just make it readable.
+
+---
+
+## Step 2 — Create the Apps Script
+
+1. In your Google Sheet, click **Extensions → Apps Script**
+2. Delete any existing code and paste the following:
+
+```javascript
+// VoicePulse Google Sheets Recorder
+// Receives POST from the VoicePulse frontend and appends a row to Sheet1.
+
+function doPost(e) {
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+    var data = JSON.parse(e.postData.contents);
+
+    sheet.appendRow([
+      data.timestamp          || "",
+      data.sessionId          || "",
+      data.respondentName     || "",
+      data.context            || "",
+      data.q1 || "",  data.a1 || "",
+      data.q2 || "",  data.a2 || "",
+      data.q3 || "",  data.a3 || "",
+      data.q4 || "",  data.a4 || "",
+      data.q5 || "",  data.a5 || "",
+      data.summary            || "",
+      data.avgSentiment       || 0,
+      data.themes             || "",
+      data.actions            || "",
+      data.hindsightCorrections || 0
+    ]);
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: "ok" }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// Optional: test via GET (visit URL in browser to verify deployment)
+function doGet(e) {
+  return ContentService
+    .createTextOutput("VoicePulse Sheets Recorder is active ✅")
+    .setMimeType(ContentService.MimeType.TEXT);
+}
+```
+
+---
+
+## Step 3 — Deploy as Web App
+
+1. Click **Deploy → New Deployment**
+2. Click the ⚙️ gear icon → Select type: **Web App**
+3. Configure:
+   - **Description**: `VoicePulse Recorder`
+   - **Execute as**: `Me`
+   - **Who has access**: `Anyone` *(required for frontend to POST without auth)*
+4. Click **Deploy**
+5. Authorize the permissions when prompted (Allow → Google Account)
+6. **Copy the Web App URL** — it looks like:
+   ```
+   https://script.google.com/macros/s/AKfycbx.../exec
+   ```
+
+> [!IMPORTANT]
+> Every time you edit the Apps Script code, you must create a **New Deployment** (not update existing) for changes to take effect.
+
+---
+
+## Step 4 — Connect to VoicePulse
+
+1. Open VoicePulse in your browser
+2. Navigate to **Operator Console → MANAGE_API_KEYS**
+3. Paste the Apps Script URL into the **Google Sheets Apps Script URL** field
+4. Click **SAVE_SETTINGS**
+
+The header badge will immediately change from `SHEETS_OFF` to `SHEETS_CONNECTED` ✅.
+
+---
+
+## What Gets Recorded Per Session
+
+Every completed VoicePulse feedback session automatically appends **one row** with:
+
+| Column | Content |
+|--------|---------|
+| Timestamp | ISO 8601 timestamp of session completion |
+| Session ID | Unique `session_<unix>` identifier |
+| Respondent Name | Auto-assigned (e.g. `Respondent #3`) |
+| Context | Campaign context string |
+| Q1–Q5 / A1–A5 | Each interviewer question and respondent answer (up to 5 turns) |
+| Summary | AI executive summary of the session |
+| Avg Sentiment | 0–100 composite sentiment score |
+| Themes | Semicolon-separated theme list with sentiment labels |
+| Actions | Semicolon-separated operator action items with priority |
+| Hindsight Corrections | Count of retrospective tag corrections |
+
+> [!NOTE]
+> The frontend uses `mode: "no-cors"` for the POST request, which means network responses are opaque. A successful network send is treated as success — check the Sheet itself to verify rows are appearing.

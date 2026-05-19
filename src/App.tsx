@@ -30,6 +30,7 @@ import {
   runCascadeFlowPipeline, 
   getSeedSessions 
 } from "./services/gemini";
+import { recordSessionToSheet } from "./services/sheets";
 
 // --- Original Graphic Components ---
 
@@ -617,7 +618,19 @@ export default function App() {
       const updatedSessions = [newSession, ...sessions];
       setSessions(updatedSessions);
       localStorage.setItem("VOICEPULSE_SESSIONS_STORE_v2", JSON.stringify(updatedSessions));
-      
+
+      // Fire-and-forget: record to Google Sheets (non-blocking)
+      recordSessionToSheet(
+        newSession.id,
+        newSession.name,
+        newSession.context,
+        history,
+        result
+      ).then(res => {
+        if (!res.success) console.warn("[Sheets] Could not record session:", res.error);
+        else console.log("[Sheets] Session recorded successfully.");
+      });
+
       // Complete Stage
       setPipelineStage("done");
     } catch (e) {
