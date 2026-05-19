@@ -89,10 +89,10 @@ async function callNvidiaNim(apiKey: string, prompt: string, systemInstruction?:
 export function getApiKey(): string {
   const localKey = localStorage.getItem("VOICEPULSE_NVIDIA_API_KEY");
   if (localKey && localKey.trim() !== "") return localKey;
-  
+
   const envKey = (process.env as any).NVIDIA_API_KEY;
   if (envKey && envKey !== "MY_NVIDIA_API_KEY" && envKey.trim() !== "") return envKey;
-  
+
   return "";
 }
 
@@ -107,7 +107,7 @@ export function saveApiKey(key: string) {
 // AI Interviewer: Determines next turn
 export async function getNextInterviewerTurn(history: DialogueTurn[], campaignQuestions?: string[]): Promise<string> {
   const apiKey = getApiKey();
-  
+
   const activeQuestions = campaignQuestions && campaignQuestions.length > 0
     ? campaignQuestions
     : [
@@ -120,28 +120,30 @@ export async function getNextInterviewerTurn(history: DialogueTurn[], campaignQu
     return simulateInterviewerTurn(history, activeQuestions);
   }
 
-  const systemInstruction = `You are VoicePulse AI, an empathetic, premium, conversational feedback agent. 
-Your goal is to conduct a fast, voice-first feedback interview based on the operator's configured questions.
-Here are the campaign questions the operator wants you to cover in order:
+  // IMPROVED: Named persona, behavioral anchors, probe-vs-skip logic, voice-aware length
+  const systemInstruction = `You are Pulse, VoicePulse's voice feedback agent. You conduct short, warm, conversational feedback interviews that feel human — not a survey.
+
+Your personality: calm curiosity. You listen, acknowledge, then gently redirect.
+Your constraint: every response will be spoken aloud. Keep it under 2 sentences. Never ask two things at once.
+
+Campaign questions to work through in order:
 ${activeQuestions.map((q, idx) => `${idx + 1}. "${q}"`).join("\n")}
 
-CRITICAL INSTRUCTIONS FOR NATURAL CONVERSATION:
-1. For each turn, you must refer to the user's previous answer and transition naturally (e.g., acknowledge what they said, show micro-empathy).
-2. Do NOT just read the scheduled campaign questions verbatim like a robot.
-3. Rephrase and blend the scheduled campaign question into your turn so it builds organically on their previous response, while keeping the absolute CORE meaning and intent of the campaign question exactly the same.
-4. Keep your responses extremely concise (always under 20 words) as they will be spoken aloud to the user.
-5. Move through the campaign questions sequentially.
-6. Once all questions have been addressed or if the user has no further input, conclude by outputting EXACTLY "THANK_YOU_VOICEPULSE" and a short, warm, appreciative goodbye.`;
+Rules:
+- Never read a question verbatim. Blend it naturally into what the user just said.
+- If the user gives a vague answer ("it was fine"), probe once: ask what "fine" looked like specifically.
+- If they give a rich, detailed answer, skip probing and move to the next campaign question.
+- If all questions are covered OR the user says they have nothing more to add, output exactly: THANK_YOU_VOICEPULSE — then a single warm closing line.`;
 
   const formattedHistory = history
-    .map(h => `${h.role === "interviewer" ? "AI Interviewer" : "Respondent"}: ${h.text}`)
+    .map(h => `${h.role === "interviewer" ? "Pulse" : "Respondent"}: ${h.text}`)
     .join("\n");
 
-  const prompt = `Review the dialogue history below and generate the next turn.
+  const prompt = `Review the dialogue history below and generate the next turn for Pulse.
 
 ${formattedHistory}
 
-AI Interviewer:`;
+Pulse:`;
 
   try {
     const responseText = await callNvidiaNim(apiKey, prompt, systemInstruction);
@@ -163,10 +165,18 @@ export async function generateCampaignQuestions(campaignPrompt: string): Promise
     ];
   }
 
-  const systemInstruction = `You are VoicePulse Campaign Architect, a senior UX researcher.
-Your job is to read an operator's feedback collection goal, and define exactly 3 highly specific, clear, conversational, and direct questions that need to be asked to respondents verbally.
-Ensure each question is concise (under 20 words) and focuses on a single aspect to avoid overwhelming the user during a voice chat.
-Output ONLY a valid JSON array of strings containing exactly 3 questions. Do not include markdown code block formatting or conversational text outside the JSON.`;
+  // IMPROVED: Voice-aware constraints, no compound questions, few-shot example anchors format
+  const systemInstruction = `You are a feedback campaign architect. Given an operator's goal, generate exactly 3 conversational questions for a voice interview — questions the user will hear and answer out loud, not read.
+
+Rules:
+- Each question must be answerable in 1-3 spoken sentences
+- No compound questions (no "and" joining two asks in one question)
+- Prefer "what" and "how" over "did you" (open-ended over binary)
+- Max 15 words per question
+- Output ONLY a raw JSON array of 3 strings. No explanation. No markdown.
+
+Example output:
+["What felt most confusing during your first session?", "Where did you almost give up and why?", "What one change would make you recommend this to a friend?"]`;
 
   const prompt = `Goal: ${campaignPrompt}
 Output:`;
@@ -194,7 +204,7 @@ export async function runCascadeFlowPipeline(
   history: DialogueTurn[],
   onProgress?: (stage: string, progress: number, log: string) => void
 ): Promise<PipelineResult> {
-  
+
   const rawTranscript = history.map(h => `${h.role === "interviewer" ? "AI" : "User"}: ${h.text}`).join("\n");
   const apiKey = getApiKey();
 
@@ -203,39 +213,59 @@ export async function runCascadeFlowPipeline(
   }
 
   try {
-    // Stage 1: Clean Transcript & Schema Check
+    // Stage 1: Clean Transcript
     onProgress?.("clean", 10, "Initializing transcription cleanup layer...");
     await new Promise(resolve => setTimeout(resolve, 800));
-    
-    const cleanPrompt = `Convert the following raw audio transcription history into a structured clean JSON array.
-Fix stuttering, remove filler words (um, uh, like), and output a valid JSON array of objects with fields "role" ("interviewer" or "respondent"), "text" (string), and "timestamp" (string).
+
+    // IMPROVED: Deterministic timestamp format, no hallucinated values, role inferred from prefix
+    const cleanPrompt = `Convert the raw conversation log below into a clean JSON array.
+
+For each turn:
+- Remove filler words (um, uh, like, basically, you know)
+- Fix obvious transcription errors (homophones, cut-off words)
+- Assign "role": "interviewer" or "respondent" based on the prefix (AI = interviewer, User = respondent)
+- Set "timestamp": to the turn's index position as "turn_N" (e.g. "turn_1", "turn_2")
+- Keep the meaning intact — do not paraphrase or summarize
+
+Output ONLY the JSON array. No explanation.
 
 Raw:
 ${rawTranscript}`;
-    
+
     onProgress?.("clean", 25, "NVIDIA NIM formatting dialogue turns...");
     const cleanResultText = await callNvidiaNim(apiKey, cleanPrompt, "You clean raw transcript logs into JSON arrays of speech turns.", true);
     const cleanTranscript: DialogueTurn[] = JSON.parse(cleanResultText);
     onProgress?.("clean", 33, `Cleaned transcript created with ${cleanTranscript.length} conversation turns.`);
 
-    // Stage 2: Chunking & Classification
+    // Stage 2: Chunking & Classification (respondent turns only)
     onProgress?.("extract", 35, "Segmenting transcript into atomic feedback chunks...");
     await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const extractPrompt = `Break this cleaned conversation history into distinct, atomic feedback chunks (where the respondent is expressing an opinion, complaint, suggestion, or positive comment).
-For each chunk, assign the following INITIAL classifications in JSON format:
-- "id": a unique string (e.g. "chunk_1")
-- "text": the precise sentence/phrase
-- "topic": a high-level label (e.g. "Onboarding", "UI/UX", "Pricing", "Features", "General")
-- "sentiment": "positive", "negative", or "neutral"
-- "intensity": "low", "medium", or "high"
-- "specificity": an integer from 1 to 5 (1 = highly vague, 5 = extremely detailed)
 
-Transcript:
-${JSON.stringify(cleanTranscript)}`;
+    // IMPROVED: Filter to respondent-only turns before sending, explicit topic taxonomy,
+    // one-idea-per-chunk rule, split instruction for compound sentences
+    const respondentTurns = cleanTranscript
+      .filter(t => t.role === "respondent")
+      .map(t => t.text)
+      .join("\n");
+
+    const extractPrompt = `You are a feedback analyst. Analyze ONLY the respondent's turns below and break them into atomic units — one distinct opinion, complaint, compliment, or suggestion per chunk.
+
+For each chunk output:
+- "id": "chunk_N" (sequential)
+- "text": the exact phrase from the respondent (do not paraphrase)
+- "topic": one of [Onboarding, UI/UX, Features, Performance, Pricing, Support, General]
+- "sentiment": "positive" | "negative" | "neutral" | "ambivalent"
+- "intensity": "low" | "medium" | "high"
+- "specificity": 1–5 (1 = vague opinion, 5 = specific actionable detail)
+
+One chunk = one idea. If a sentence contains two opinions, split it into two chunks.
+Output ONLY a raw JSON array.
+
+Respondent turns:
+${respondentTurns}`;
 
     onProgress?.("extract", 50, "Classifying chunks using real-time NVIDIA NIM heuristics...");
-    const chunksText = await callNvidiaNim(apiKey, extractPrompt, "You extract feedback chunks and tag them with initial metadata.", true);
+    const chunksText = await callNvidiaNim(apiKey, extractPrompt, "You extract feedback chunks from respondent speech and tag them with initial metadata.", true);
     const chunks: ChunkClassification[] = JSON.parse(chunksText);
     onProgress?.("extract", 66, `Extracted ${chunks.length} feedback chunks.`);
 
@@ -243,51 +273,84 @@ ${JSON.stringify(cleanTranscript)}`;
     onProgress?.("hindsight", 70, "Initiating Hindsight Retrospective Reasoning...");
     await new Promise(resolve => setTimeout(resolve, 1200));
 
-    const hindsightPrompt = `You are a Hindsight Reasoning Agent. You have the complete transcript of the feedback conversation.
-Your job is to review every initial classification tag assigned to the chunks and correct them based on later context.
-Often, users express a positive or neutral opinion early in the conversation, but clarify deep frustration, challenges, or highly specific details later.
-Review these chunks:
+    // IMPROVED: Explicit correction criteria, removed verifiedChunks from output ask (applied in code),
+    // three concrete trigger conditions, ambivalent flag for contradictions
+    const hindsightPrompt = `You are a Hindsight Reasoning Agent. You have the complete feedback conversation AND the initial classifications made in real-time.
+
+Your task: find classification mistakes caused by incomplete early context.
+
+A correction is warranted when:
+- The user said something positive or neutral early, but later revealed it was actually negative (e.g. "it was fine" → later: "we almost quit")
+- A vague topic label (e.g. "UI/UX") can be resolved to something specific based on later mentions (e.g. "the export button")
+- Two contradictory statements exist about the same thing — flag the chunk as "ambivalent", not positive or negative
+
+For each chunk that needs correction, output:
+{
+  "chunkId": string,
+  "text": string,
+  "originalTopic": string,
+  "originalSentiment": string,
+  "correctedTopic": string,
+  "correctedSentiment": string,
+  "reasoning": "one sentence explaining exactly what changed in hindsight"
+}
+
+If no chunk needs correction, output: { "corrections": [] }
+Output ONLY: { "corrections": [...] }
+
+Initial chunks:
 ${JSON.stringify(chunks)}
 
-For each chunk, evaluate if subsequent statements in the conversation would change its classification (Topic or Sentiment).
-Output a JSON object containing:
-- "corrections": an array of objects for ONLY those chunks that need correction, containing:
-  - "chunkId": string
-  - "text": string
-  - "originalTopic": string
-  - "originalSentiment": string
-  - "correctedTopic": string
-  - "correctedSentiment": string
-  - "reasoning": a clear explanation of what changed in hindsight (e.g. "Respondent initially said setup was fine, but later revealed that the terminal crashed on the second step.")
-- "verifiedChunks": the complete list of all chunks with their final classifications (incorporating your changes).
-
-Complete Transcript:
+Full conversation:
 ${rawTranscript}`;
 
     onProgress?.("hindsight", 85, "Analyzing context shifts and resolving contradictions...");
     const hindsightText = await callNvidiaNim(apiKey, hindsightPrompt, "You apply retrospective context to revise early classification mistakes.", true);
     const hindsightData = JSON.parse(hindsightText);
     const corrections: HindsightCorrection[] = hindsightData.corrections || [];
-    const verifiedChunks: ChunkClassification[] = hindsightData.verifiedChunks || chunks;
+
+    // Apply corrections to chunks in code rather than asking model to re-emit the full list
+    const verifiedChunks: ChunkClassification[] = chunks.map(chunk => {
+      const fix = corrections.find(c => c.chunkId === chunk.id);
+      if (fix) {
+        return {
+          ...chunk,
+          topic: fix.correctedTopic,
+          sentiment: fix.correctedSentiment as ChunkClassification["sentiment"],
+        };
+      }
+      return chunk;
+    });
+
     onProgress?.("hindsight", 100, `Hindsight completed. Corrected ${corrections.length} misclassifications.`);
 
     // Stage 4: Synthesis & Output Generation
     onProgress?.("synthesis", 10, "Aggregating data into final structured executive report...");
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    const synthesisPrompt = `Synthesize this feedback session into a premium Operator Dashboard output in JSON.
-Generate:
-1. "summary": a compelling, 3-sentence executive summary highlighting the main friction points and delightful moments.
-2. "themes": an array of top theme objects, each with "title" (string), "count" (number of occurrences), "sentiment" ("positive", "negative", or "mixed"), and "description" (1-sentence summary of the theme).
-3. "heatmap": an array of objects representing sentiment score per topic: "topic" (string), "score" (0 to 100 where 0=frustrated, 100=delighted), and "count" (number of chunks).
-4. "highlights": 2-3 key verbatim quotes with "text" (string), "topic" (string), and "emotionalWeight" ("high", "medium", or "low").
-5. "actions": 3-4 operator action items with "task" (concrete description), "priority" ("high", "medium", or "low"), and "category" (e.g. "Bug Fix", "Feature Request", "UI Polish").
+    // IMPROVED: Field-level structure + length constraints, summary formula defined,
+    // ordering rules, no vague quality signals like "compelling"
+    const synthesisPrompt = `You are a product analytics engine. Generate an operator dashboard report from the verified feedback chunks below.
 
-Using the corrected chunks:
+Output a single JSON object with exactly these keys:
+
+"summary": 3 sentences. Sentence 1: overall verdict. Sentence 2: top friction point. Sentence 3: top positive signal or one concrete recommendation.
+
+"themes": array of up to 4 objects — { "title": string, "count": number, "sentiment": string, "description": string (max 12 words) }. Order by count descending.
+
+"heatmap": one object per unique topic — { "topic": string, "score": number (0–100 where 0 = purely frustrated, 100 = purely delighted), "count": number }.
+
+"highlights": 2–3 verbatim quotes from the respondent with highest emotional weight — { "text": string (include surrounding quotation marks), "topic": string, "emotionalWeight": "high" | "medium" | "low" }.
+
+"actions": exactly 3 action items for the product team — { "task": string (specific, under 12 words), "priority": "high" | "medium" | "low", "category": string }. Order by priority descending.
+
+Output ONLY the JSON object. No explanation.
+
+Verified chunks:
 ${JSON.stringify(verifiedChunks)}`;
 
     onProgress?.("synthesis", 50, "Synthesizing sentiment heatmap and extracting highlight reel...");
-    const synthesisText = await callNvidiaNim(apiKey, synthesisPrompt, "You generate beautiful, actionable executive summaries and action items in JSON.", true);
+    const synthesisText = await callNvidiaNim(apiKey, synthesisPrompt, "You generate structured, actionable operator dashboard reports in JSON.", true);
     const synthesis: SynthesisOutput = JSON.parse(synthesisText);
     onProgress?.("synthesis", 100, "CascadeFlow successfully finished! Surfacing insights to Operator Dashboard.");
 
@@ -313,19 +376,17 @@ ${JSON.stringify(verifiedChunks)}`;
 function simulateInterviewerTurn(history: DialogueTurn[], campaignQuestions: string[]): string {
   const userTurns = history.filter(h => h.role === "respondent");
   const nextQuestionIdx = userTurns.length;
-  
+
   if (nextQuestionIdx < campaignQuestions.length) {
     const rawQuestion = campaignQuestions[nextQuestionIdx];
-    
-    // First question has no previous response to refer to
+
     if (nextQuestionIdx === 0) {
       return rawQuestion;
     }
-    
-    // Refer back to the previous answer
+
     const lastUserTurn = userTurns[userTurns.length - 1];
     const lastText = lastUserTurn ? lastUserTurn.text.toLowerCase() : "";
-    
+
     let transitionPrefix = "";
     if (lastText.includes("good") || lastText.includes("great") || lastText.includes("awesome") || lastText.includes("love") || lastText.includes("easy") || lastText.includes("fine")) {
       const positiveTransitions = [
@@ -354,8 +415,7 @@ function simulateInterviewerTurn(history: DialogueTurn[], campaignQuestions: str
     } else {
       transitionPrefix = "";
     }
-    
-    // Lowercase first letter of the question so it flows into the prefix
+
     const adjustedQuestion = rawQuestion.charAt(0).toLowerCase() + rawQuestion.slice(1);
     return `${transitionPrefix}${adjustedQuestion}`;
   }
@@ -368,18 +428,19 @@ async function runSimulatedPipeline(
   onProgress?: (stage: string, progress: number, log: string) => void
 ): Promise<PipelineResult> {
   const rawTranscript = history.map(h => `${h.role === "interviewer" ? "AI" : "User"}: ${h.text}`).join("\n");
-  
+
   // Step 1: Clean
   onProgress?.("clean", 10, "Initializing transcription cleanup layer...");
   await new Promise(resolve => setTimeout(resolve, 800));
   onProgress?.("clean", 60, "Normalizing audio stream, resolving filler words...");
   await new Promise(resolve => setTimeout(resolve, 400));
-  
-  const cleanTranscript = history.map(h => ({
+
+  const cleanTranscript = history.map((h, idx) => ({
     ...h,
+    timestamp: `turn_${idx + 1}`,
     text: h.text.replace(/\b(um|uh|like|so|basically)\b/gi, "").replace(/\s+/g, " ").trim()
   }));
-  
+
   onProgress?.("clean", 100, `Cleaned transcript created with ${cleanTranscript.length} conversation turns.`);
 
   // Step 2: Chunking & Classification
@@ -388,32 +449,22 @@ async function runSimulatedPipeline(
   onProgress?.("extract", 70, "Applying real-time topic modeling & sentiment weights...");
   await new Promise(resolve => setTimeout(resolve, 600));
 
-  // Heuristic analysis of the transcript
   const userSpeech = history.filter(h => h.role === "respondent").map(h => h.text).join(" ");
   const userSpeechLower = userSpeech.toLowerCase();
 
   const chunks: ChunkClassification[] = [];
-  
-  // Generate chunks based on text matches
+
   let chunkCount = 1;
   const addChunk = (text: string, topic: string, sentiment: "positive" | "negative" | "neutral" | "ambivalent", intensity: "low" | "medium" | "high", specificity: number) => {
-    chunks.push({
-      id: `chunk_${chunkCount++}`,
-      text,
-      topic,
-      sentiment,
-      intensity,
-      specificity
-    });
+    chunks.push({ id: `chunk_${chunkCount++}`, text, topic, sentiment, intensity, specificity });
   };
 
-  // Find user sentences
   const sentences = userSpeech.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 5);
-  
+
   if (sentences.length === 0) {
     addChunk("The experience was quite interesting and helpful.", "General", "positive", "medium", 2);
   } else {
-    sentences.forEach((sentence, idx) => {
+    sentences.forEach((sentence) => {
       const lower = sentence.toLowerCase();
       let topic = "General";
       let sentiment: "positive" | "negative" | "neutral" | "ambivalent" = "neutral";
@@ -421,26 +472,20 @@ async function runSimulatedPipeline(
       let specificity = 2;
 
       if (lower.includes("setup") || lower.includes("install") || lower.includes("onboard") || lower.includes("start")) {
-        topic = "Onboarding";
-        specificity = 3;
+        topic = "Onboarding"; specificity = 3;
       } else if (lower.includes("ui") || lower.includes("ux") || lower.includes("dashboard") || lower.includes("look") || lower.includes("screen") || lower.includes("visual")) {
-        topic = "UI/UX";
-        specificity = 3;
+        topic = "UI/UX"; specificity = 3;
       } else if (lower.includes("feature") || lower.includes("api") || lower.includes("tool") || lower.includes("widget")) {
-        topic = "Features";
-        specificity = 4;
+        topic = "Features"; specificity = 4;
       } else if (lower.includes("price") || lower.includes("cost") || lower.includes("free")) {
-        topic = "Pricing";
-        specificity = 4;
+        topic = "Pricing"; specificity = 4;
       }
 
       if (lower.includes("great") || lower.includes("awesome") || lower.includes("delightful") || lower.includes("love") || lower.includes("easy") || lower.includes("good")) {
         sentiment = "positive";
         if (lower.includes("love") || lower.includes("awesome")) intensity = "high";
       } else if (lower.includes("error") || lower.includes("crash") || lower.includes("hard") || lower.includes("difficult") || lower.includes("annoying") || lower.includes("bad") || lower.includes("quit") || lower.includes("frustrated")) {
-        sentiment = "negative";
-        intensity = "high";
-        specificity += 1;
+        sentiment = "negative"; intensity = "high"; specificity += 1;
       }
 
       addChunk(sentence, topic, sentiment, intensity, specificity);
@@ -456,10 +501,10 @@ async function runSimulatedPipeline(
   await new Promise(resolve => setTimeout(resolve, 800));
 
   const corrections: HindsightCorrection[] = [];
-  
+
   chunks.forEach(chunk => {
     const textLower = chunk.text.toLowerCase();
-    
+
     if (chunk.topic === "Onboarding" && chunk.sentiment === "positive" && (userSpeechLower.includes("crash") || userSpeechLower.includes("stuck") || userSpeechLower.includes("error"))) {
       corrections.push({
         chunkId: chunk.id,
@@ -468,11 +513,11 @@ async function runSimulatedPipeline(
         originalSentiment: "positive",
         correctedTopic: "Onboarding",
         correctedSentiment: "ambivalent",
-        reasoning: "Respondent initially stated onboarding was 'fine', but later detailed significant setup issues and errors. Hindsight reveals early sentiment was polite compliance, and the overall experience was highly ambivalent."
+        reasoning: "Respondent initially stated onboarding was 'fine', but later detailed significant setup issues and errors. Hindsight reveals early sentiment was polite compliance, overall experience was highly ambivalent."
       });
       chunk.sentiment = "ambivalent";
     }
-    
+
     if (chunk.topic === "UI/UX" && textLower.includes("dashboard") && (userSpeechLower.includes("analytics") || userSpeechLower.includes("chart"))) {
       corrections.push({
         chunkId: chunk.id,
@@ -481,7 +526,7 @@ async function runSimulatedPipeline(
         originalSentiment: chunk.sentiment,
         correctedTopic: "Analytics Panel",
         correctedSentiment: chunk.sentiment,
-        reasoning: "General complaint about 'the dashboard' is resolved in hindsight to represent the specific sub-screens of the Analytics Panel, following later mentions of charts."
+        reasoning: "General complaint about 'the dashboard' is resolved in hindsight to the Analytics Panel, following later mentions of charts."
       });
       chunk.topic = "Analytics Panel";
     }
@@ -497,12 +542,12 @@ async function runSimulatedPipeline(
 
   const positiveCount = chunks.filter(c => c.sentiment === "positive").length;
   const negativeCount = chunks.filter(c => c.sentiment === "negative").length;
-  
+
   let overallSummary = "The user generally had a positive interaction with the platform, praising its rapid responsiveness. However, setup friction and confusion surrounding deep features emerged as notable barriers. Corrective UI changes are recommended.";
   if (negativeCount > positiveCount) {
-    overallSummary = "The feedback session reveals severe onboarding barriers and functional errors. While the user appreciates the visual design, they were unable to successfully complete their primary goals due to setup complications.";
+    overallSummary = "The feedback session reveals severe onboarding barriers and functional errors. While the user appreciates the visual design, they were unable to successfully complete their primary goals due to setup complications. Prioritize deployment and error logging fixes.";
   } else if (positiveCount > 3) {
-    overallSummary = "An exceptionally delightful session! The user expressed highly positive sentiment towards the conversational nature of the product and found onboarding seamless, only suggesting minor improvements to export filters.";
+    overallSummary = "An exceptionally positive session — the user found onboarding seamless and the conversational interface intuitive. Only minor improvements to export filters were flagged. Ship and move to the next persona.";
   }
 
   const synthesis: SynthesisOutput = {
@@ -512,19 +557,19 @@ async function runSimulatedPipeline(
         title: "Setup Friction",
         count: userSpeechLower.includes("setup") || userSpeechLower.includes("install") ? 2 : 1,
         sentiment: userSpeechLower.includes("error") ? "negative" : "mixed",
-        description: "Initial environment scripts failed or felt overly complex to configure."
+        description: "Initial environment scripts failed or felt overly complex."
       },
       {
         title: "Conversational Widget UX",
         count: 2,
         sentiment: "positive",
-        description: "The microphone-driven interface is highly intuitive and 3x faster than writing."
+        description: "Microphone-driven interface is intuitive and faster than typing."
       },
       {
         title: "Analytics Depth",
         count: userSpeechLower.includes("analytics") || userSpeechLower.includes("chart") ? 1 : 0,
         sentiment: "neutral",
-        description: "Operator requires clearer data breakdowns and chart export functionalities."
+        description: "Operator requires clearer data breakdowns and export options."
       }
     ].filter(t => t.count > 0),
     heatmap: [
@@ -540,17 +585,17 @@ async function runSimulatedPipeline(
     })),
     actions: [
       {
-        task: "Simplify onboarding terminal scripts and supply Docker stubs",
+        task: "Simplify onboarding scripts and supply Docker stubs",
         priority: userSpeechLower.includes("error") ? "high" : "medium",
         category: "Onboarding"
       },
       {
-        task: "Increase touch targets on the browser widget microphone button",
+        task: "Increase touch targets on microphone button",
         priority: "medium",
         category: "UI/UX"
       },
       {
-        task: "Add PDF/CSV downloadable report options to the dashboard",
+        task: "Add PDF and CSV download options to dashboard",
         priority: "low",
         category: "Feature Request"
       }
@@ -579,12 +624,12 @@ export function getSeedSessions(): { id: string; name: string; context: string; 
       result: {
         rawTranscript: "AI: How was your overall experience?\nUser: The setup was fine, really quick to get going.\nAI: Great. Did you hit any hurdles during development?\nUser: Actually, later when we tried to deploy, the build crashed. The console gave a cryptic error, and we wasted like two hours debugging it. We almost quit the hackathon. It would have been good to have clear troubleshooting stubs.\nAI: Oh, sorry to hear that. Any final thoughts on UI?\nUser: The dashboard UI is nice, especially the real-time analytics graphs.",
         cleanTranscript: [
-          { role: "interviewer", text: "How was your overall experience?", timestamp: "16:15:02" },
-          { role: "respondent", text: "The setup was fine, really quick to get going.", timestamp: "16:15:15" },
-          { role: "interviewer", text: "Great. Did you hit any hurdles during development?", timestamp: "16:15:20" },
-          { role: "respondent", text: "Actually, later when we tried to deploy, the build crashed. The console gave a cryptic error, and we wasted like two hours debugging it. We almost quit the hackathon. It would have been good to have clear troubleshooting stubs.", timestamp: "16:15:55" },
-          { role: "interviewer", text: "Oh, sorry to hear that. Any final thoughts on UI?", timestamp: "16:16:02" },
-          { role: "respondent", text: "The dashboard UI is nice, especially the real-time analytics graphs.", timestamp: "16:16:20" }
+          { role: "interviewer", text: "How was your overall experience?", timestamp: "turn_1" },
+          { role: "respondent", text: "The setup was fine, really quick to get going.", timestamp: "turn_2" },
+          { role: "interviewer", text: "Great. Did you hit any hurdles during development?", timestamp: "turn_3" },
+          { role: "respondent", text: "Actually, later when we tried to deploy, the build crashed. The console gave a cryptic error, and we wasted like two hours debugging it. We almost quit the hackathon. It would have been good to have clear troubleshooting stubs.", timestamp: "turn_4" },
+          { role: "interviewer", text: "Oh, sorry to hear that. Any final thoughts on UI?", timestamp: "turn_5" },
+          { role: "respondent", text: "The dashboard UI is nice, especially the real-time analytics graphs.", timestamp: "turn_6" }
         ],
         chunks: [
           { id: "c1", text: "The setup was fine, really quick to get going.", topic: "Onboarding", sentiment: "ambivalent", intensity: "low", specificity: 2 },
@@ -601,7 +646,7 @@ export function getSeedSessions(): { id: string; name: string; context: string; 
             originalSentiment: "positive",
             correctedTopic: "Onboarding",
             correctedSentiment: "ambivalent",
-            reasoning: "Respondent initially praised the setup as 'fine', but later revealed they spent two hours debugging a build crash and almost quit. In hindsight, onboarding is highly ambivalent and setup was not actually fine."
+            reasoning: "Respondent praised setup as 'fine' but later revealed a build crash cost two hours — early sentiment was polite compliance, not genuine satisfaction."
           },
           {
             chunkId: "c5",
@@ -610,14 +655,14 @@ export function getSeedSessions(): { id: string; name: string; context: string; 
             originalSentiment: "positive",
             correctedTopic: "Analytics Panel",
             correctedSentiment: "positive",
-            reasoning: "General 'dashboard UI' is resolved to 'Analytics Panel' in hindsight due to specific praise for the real-time analytics graphs."
+            reasoning: "General 'dashboard UI' resolved to 'Analytics Panel' due to specific praise for real-time analytics graphs mentioned later."
           }
         ],
         synthesis: {
-          summary: "Alex had an initially positive onboarding experience that was ruined by a critical build error during deployment, costing two hours of development time. Once resolved, he loved the real-time analytics visual display.",
+          summary: "Alex's session started positively but was derailed by a critical build crash during deployment, costing two hours of hackathon time. The real-time analytics UI was a genuine highlight once the team recovered. Fix deployment error logging before the next event.",
           themes: [
-            { title: "Critical Build Failures", count: 2, sentiment: "negative", description: "Deployments crashed with obscure console errors, draining team morale." },
-            { title: "Beautiful Visual Charts", count: 1, sentiment: "positive", description: "Respondent loved the real-time graphing UI." }
+            { title: "Critical Build Failures", count: 2, sentiment: "negative", description: "Deployments crashed with obscure console errors." },
+            { title: "Beautiful Visual Charts", count: 1, sentiment: "positive", description: "Real-time graphing UI delighted the respondent." }
           ],
           heatmap: [
             { topic: "Onboarding", score: 40, count: 1 },
@@ -630,8 +675,9 @@ export function getSeedSessions(): { id: string; name: string; context: string; 
             { text: "\"The setup was fine, really quick to get going.\"", topic: "Onboarding", emotionalWeight: "low" }
           ],
           actions: [
-            { task: "Fix deployment console stdout trapping to surface clean error logs", priority: "high", category: "Deployments" },
-            { task: "Build a pre-deployment check checklist in the dashboard", priority: "medium", category: "UI/UX" }
+            { task: "Surface clean error logs in deployment console stdout", priority: "high", category: "Deployments" },
+            { task: "Add pre-deployment checklist widget to dashboard", priority: "medium", category: "UI/UX" },
+            { task: "Provide one-click Docker stub for local environment setup", priority: "low", category: "Onboarding" }
           ]
         }
       }
@@ -644,18 +690,18 @@ export function getSeedSessions(): { id: string; name: string; context: string; 
       result: {
         rawTranscript: "AI: What did you think of the new CRM layout?\nUser: It looked okay on the screen.\nAI: Okay, what stood out specifically?\nUser: The visual charts on the main page were a bit confusing actually. I couldn't find the email integration button at first until I read the docs. But once I got the email connected, the automated syncing was absolutely magical. It saved me a ton of time already.\nAI: Glad the sync worked out. Any layout complaints?\nUser: Just make the main screen buttons larger.",
         cleanTranscript: [
-          { role: "interviewer", text: "What did you think of the new CRM layout?", timestamp: "15:20:00" },
-          { role: "respondent", text: "It looked okay on the screen.", timestamp: "15:20:10" },
-          { role: "interviewer", text: "Okay, what stood out specifically?", timestamp: "15:20:15" },
-          { role: "respondent", text: "The visual charts on the main page were a bit confusing actually. I couldn't find the email integration button at first until I read the docs. But once I got the email connected, the automated syncing was absolutely magical. It saved me a ton of time already.", timestamp: "15:21:00" },
-          { role: "interviewer", text: "Glad the sync worked out. Any layout complaints?", timestamp: "15:21:10" },
-          { role: "respondent", text: "Just make the main screen buttons larger.", timestamp: "15:21:25" }
+          { role: "interviewer", text: "What did you think of the new CRM layout?", timestamp: "turn_1" },
+          { role: "respondent", text: "It looked okay on the screen.", timestamp: "turn_2" },
+          { role: "interviewer", text: "Okay, what stood out specifically?", timestamp: "turn_3" },
+          { role: "respondent", text: "The visual charts on the main page were a bit confusing actually. I couldn't find the email integration button at first until I read the docs. But once I got the email connected, the automated syncing was absolutely magical. It saved me a ton of time already.", timestamp: "turn_4" },
+          { role: "interviewer", text: "Glad the sync worked out. Any layout complaints?", timestamp: "turn_5" },
+          { role: "respondent", text: "Just make the main screen buttons larger.", timestamp: "turn_6" }
         ],
         chunks: [
-          { id: "s1", text: "It looked okay on the screen.", topic: "UI/UX", sentiment: "neutral", intensity: "low", specificity: 1 },
+          { id: "s1", text: "It looked okay on the screen.", topic: "UI/UX", sentiment: "ambivalent", intensity: "low", specificity: 1 },
           { id: "s2", text: "The visual charts on the main page were a bit confusing actually.", topic: "UI/UX", sentiment: "negative", intensity: "medium", specificity: 3 },
-          { id: "s3", text: "I couldn't find the email integration button at first until I read the docs.", topic: "Email Sync", sentiment: "negative", intensity: "medium", specificity: 4 },
-          { id: "s4", text: "But once I got the email connected, the automated syncing was absolutely magical.", topic: "Email Sync", sentiment: "positive", intensity: "high", specificity: 4 },
+          { id: "s3", text: "I couldn't find the email integration button at first until I read the docs.", topic: "Features", sentiment: "negative", intensity: "medium", specificity: 4 },
+          { id: "s4", text: "But once I got the email connected, the automated syncing was absolutely magical.", topic: "Features", sentiment: "positive", intensity: "high", specificity: 4 },
           { id: "s5", text: "Just make the main screen buttons larger.", topic: "UI/UX", sentiment: "neutral", intensity: "low", specificity: 2 }
         ],
         corrections: [
@@ -666,26 +712,27 @@ export function getSeedSessions(): { id: string; name: string; context: string; 
             originalSentiment: "neutral",
             correctedTopic: "UI/UX",
             correctedSentiment: "ambivalent",
-            reasoning: "Respondent started with a safe 'okay' rating, but subsequent critiques revealed they found the charts confusing and buttons too small. Hindsight reweights this first turn as ambivalent."
+            reasoning: "Safe 'okay' opener is reweighted as ambivalent — subsequent turns revealed chart confusion and small button complaints."
           }
         ],
         synthesis: {
-          summary: "Marcus felt the visual layout was okay but noted initial confusion with dashboard charts. While finding the email sync setup unintuitive, he described the feature's performance as 'magical' and highly efficient.",
+          summary: "Marcus found the layout acceptable at first glance but uncovered real friction with confusing charts and a hidden email integration button. Once connected, the automated sync was a standout delight. Prioritize discoverability of key action buttons.",
           themes: [
-            { title: "Email Sync Magic", count: 2, sentiment: "positive", description: "Automated email synchronization delivers outstanding time-savings." },
-            { title: "Confusing Visual Charts", count: 1, sentiment: "negative", description: "Dashboard layout displays high visual complexity, confusing first-time operators." }
+            { title: "Email Sync Delight", count: 2, sentiment: "positive", description: "Automated sync delivers outstanding time savings." },
+            { title: "Confusing Visual Charts", count: 1, sentiment: "negative", description: "Dashboard layout displays high visual complexity." }
           ],
           heatmap: [
             { topic: "UI/UX", score: 55, count: 3 },
-            { topic: "Email Sync", score: 70, count: 2 }
+            { topic: "Features", score: 70, count: 2 }
           ],
           highlights: [
-            { text: "\"The automated syncing was absolutely magical. It saved me a ton of time.\"", topic: "Email Sync", emotionalWeight: "high" },
+            { text: "\"The automated syncing was absolutely magical. It saved me a ton of time.\"", topic: "Features", emotionalWeight: "high" },
             { text: "\"The visual charts on the main page were a bit confusing actually.\"", topic: "UI/UX", emotionalWeight: "medium" }
           ],
           actions: [
-            { task: "Restyle dashboard graphs with larger tooltips and less visual density", priority: "medium", category: "UI/UX" },
-            { task: "Add a prompt or tool-tip next to the email integration button for discoverability", priority: "high", category: "Features" }
+            { task: "Add tooltip to email integration button for discoverability", priority: "high", category: "Features" },
+            { task: "Restyle dashboard graphs with reduced visual density", priority: "medium", category: "UI/UX" },
+            { task: "Increase tap target size on all primary action buttons", priority: "low", category: "UI/UX" }
           ]
         }
       }
