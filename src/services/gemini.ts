@@ -45,7 +45,10 @@ export interface PipelineResult {
 // Fetch helper that uses NVIDIA integrate API to call minimaxai/minimax-m2.7
 export async function callNvidiaNim(apiKey: string, prompt: string, systemInstruction?: string, isJson: boolean = false): Promise<string> {
   try {
-    const url = "https://integrate.api.nvidia.com/v1/chat/completions";
+    // In local development, route through Vite proxy to bypass browser CORS blocks
+    const url = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+      ? "/api/nvidia/v1/chat/completions"
+      : "https://integrate.api.nvidia.com/v1/chat/completions";
     const messages = [];
 
     if (systemInstruction) {
