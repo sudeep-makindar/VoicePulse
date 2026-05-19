@@ -221,6 +221,27 @@ function generateHeuristicQuestions(campaignPrompt: string): string[] {
   ];
 }
 
+// Helper utility to safely extract JSON arrays under strict JSON Mode constraints
+function safeParseJsonArray<T>(jsonText: string): T[] {
+  try {
+    const cleanJson = jsonText.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(cleanJson);
+    if (Array.isArray(parsed)) {
+      return parsed as T[];
+    }
+    if (parsed && typeof parsed === "object") {
+      const firstArray = Object.values(parsed).find(val => Array.isArray(val));
+      if (firstArray) {
+        return firstArray as T[];
+      }
+    }
+    return [];
+  } catch (e) {
+    console.error("safeParseJsonArray failed to parse:", e);
+    return [];
+  }
+}
+
 // AI Campaign Generator: Defines a set of 3 target feedback questions based on operator prompt
 export async function generateCampaignQuestions(campaignPrompt: string): Promise<string[]> {
   const apiKey = getApiKey();
@@ -246,9 +267,8 @@ Output:`;
 
   try {
     const responseText = await callNvidiaNim(apiKey, prompt, systemInstruction, true);
-    const cleanJson = responseText.replace(/```json|```/g, "").trim();
-    const questions: string[] = JSON.parse(cleanJson);
-    if (Array.isArray(questions) && questions.length > 0) {
+    const questions = safeParseJsonArray<string>(responseText);
+    if (questions.length > 0) {
       return questions.slice(0, 3); // Make sure we only take exactly 3 questions
     }
     throw new Error("Invalid format returned");
@@ -293,7 +313,7 @@ ${rawTranscript}`;
 
     onProgress?.("clean", 25, "NVIDIA NIM formatting dialogue turns...");
     const cleanResultText = await callNvidiaNim(apiKey, cleanPrompt, "You clean raw transcript logs into JSON arrays of speech turns.", true);
-    const cleanTranscript: DialogueTurn[] = JSON.parse(cleanResultText);
+    const cleanTranscript = safeParseJsonArray<DialogueTurn>(cleanResultText);
     onProgress?.("clean", 33, `Cleaned transcript created with ${cleanTranscript.length} conversation turns.`);
 
     // Stage 2: Chunking & Classification (respondent turns only)
@@ -325,7 +345,7 @@ ${respondentTurns}`;
 
     onProgress?.("extract", 50, "Classifying chunks using real-time NVIDIA NIM heuristics...");
     const chunksText = await callNvidiaNim(apiKey, extractPrompt, "You extract feedback chunks from respondent speech and tag them with initial metadata.", true);
-    const chunks: ChunkClassification[] = JSON.parse(chunksText);
+    const chunks = safeParseJsonArray<ChunkClassification>(chunksText);
     onProgress?.("extract", 66, `Extracted ${chunks.length} feedback chunks.`);
 
     // Stage 3: Hindsight Reasoning Pass
