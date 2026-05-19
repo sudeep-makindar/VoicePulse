@@ -40,9 +40,9 @@ export default function SheetAnalyzerUI() {
   const filteredSheetData = useMemo(() => {
     if (!sheetSearch) return sheetData;
     return sheetData.filter(row => 
-      row.respondentName.toLowerCase().includes(sheetSearch.toLowerCase()) ||
-      row.summary.toLowerCase().includes(sheetSearch.toLowerCase()) ||
-      row.themes.toLowerCase().includes(sheetSearch.toLowerCase())
+      (row.respondentName || "").toLowerCase().includes(sheetSearch.toLowerCase()) ||
+      (row.summary || "").toLowerCase().includes(sheetSearch.toLowerCase()) ||
+      (row.themes || "").toLowerCase().includes(sheetSearch.toLowerCase())
     );
   }, [sheetData, sheetSearch]);
 
@@ -131,7 +131,7 @@ export default function SheetAnalyzerUI() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="font-bold text-white text-sm">{row.respondentName}</div>
-                    <div className="text-[10px] text-brand-muted font-mono">{row.sessionId.slice(0, 8)}</div>
+                    <div className="text-[10px] text-brand-muted font-mono">{(row.sessionId || "").slice(0, 8)}</div>
                   </td>
                   <td className="px-6 py-4 text-sm text-brand-muted leading-relaxed max-w-md">
                     {row.summary}
